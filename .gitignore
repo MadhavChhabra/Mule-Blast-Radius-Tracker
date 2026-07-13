@@ -1,0 +1,28 @@
+# Gradle / Java
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Flutter / Dart
+dashboard/.dart_tool/
+dashboard/build/
+dashboard/.flutter-plugins
+dashboard/.flutter-plugins-dependencies
+.packages
+
+# Env / secrets
+.env
+deploy/.env
+
+# OS
+.DS_Store
+Thumbs.db
