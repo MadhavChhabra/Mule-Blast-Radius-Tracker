@@ -1,0 +1,30 @@
+// Root build configuration for the APIGuard multi-module project.
+// core/ is pure Java (no Spring). cli/ and server/ both depend on core.
+subprojects {
+    apply plugin: 'java'
+
+    group = 'com.apiguard'
+    version = '0.1.0'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        testLogging {
+            events 'passed', 'skipped', 'failed'
+            exceptionFormat = 'full'
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+}
