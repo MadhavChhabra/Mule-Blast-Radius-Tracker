@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.acme</groupId>
+    <artifactId>orders-exp-api</artifactId>
+    <version>1.0.0</version>
+    <packaging>mule-application</packaging>
+    <name>Orders Experience API</name>
+
+    <dependencies>
+        <!-- Downstream Exchange API assets this experience API consumes -->
+        <dependency>
+            <groupId>a1b2c3-org-id</groupId>
+            <artifactId>orders-process-api</artifactId>
+            <version>2.1.0</version>
+            <classifier>raml</classifier>
+            <type>zip</type>
+        </dependency>
+        <dependency>
+            <groupId>a1b2c3-org-id</groupId>
+            <artifactId>customers-sys-api</artifactId>
+            <version>1.4.0</version>
+            <classifier>raml</classifier>
+            <type>zip</type>
+        </dependency>
+
+        <!-- Connectors / runtime deps (should be ignored by the scanner) -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-http-connector</artifactId>
+            <version>1.9.0</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.mule.modules</groupId>
+            <artifactId>mule-apikit-module</artifactId>
+            <version>1.11.0</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+    </dependencies>
+</project>

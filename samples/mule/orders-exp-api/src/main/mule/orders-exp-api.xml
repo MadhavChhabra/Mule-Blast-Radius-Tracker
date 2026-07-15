@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit">
+
+    <!-- HTTP request configs pointing at downstream APIs -->
+    <http:request-config name="orders-process-api-config">
+        <http:request-connection host="orders-process-api.acme.internal" port="443" protocol="HTTPS"/>
+    </http:request-config>
+    <http:request-config name="customers-sys-api-config">
+        <http:request-connection host="customers-sys-api.acme.internal" port="443" protocol="HTTPS"/>
+    </http:request-config>
+
+    <!-- APIkit inbound endpoint: GET /orders/{orderId} -->
+    <flow name="get:\orders\(orderId):orders-exp-api-config">
+        <http:request method="GET" path="/orders/{orderId}" config-ref="orders-process-api-config"/>
+        <http:request method="GET" path="/customers/{id}" config-ref="customers-sys-api-config"/>
+        <!-- DataWeave maps the downstream response into the experience API's shape.
+             The payload.* references are the exact downstream fields this endpoint depends on. -->
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  id: payload.orderId,
+  customer: payload.customerId,
+  state: payload.status
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </flow>
+
+    <!-- APIkit inbound endpoint: GET /orders -->
+    <flow name="get:\orders:orders-exp-api-config">
+        <http:request method="GET" path="/orders" config-ref="orders-process-api-config"/>
+    </flow>
+
+    <!-- APIkit inbound endpoint: POST /orders -->
+    <flow name="post:\orders:application\json:orders-exp-api-config">
+        <http:request method="POST" path="/orders" config-ref="orders-process-api-config"/>
+    </flow>
+</mule>

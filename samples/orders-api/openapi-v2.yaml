@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: Orders API
+  version: 2.0.0
+  description: Sample producer API used for APIGuard demos (v2 with intentional breaking changes).
+paths:
+  /orders/{id}:
+    get:
+      summary: Get an order
+      operationId: getOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+  /orders:
+    post:
+      summary: Create an order
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, currency]
+              properties:
+                amount: { type: integer }
+                currency: { type: string, enum: [USD, EUR, GBP] }
+                couponCode: { type: string }        # ADDITIVE: new optional request field
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id: { type: string }
+        # customerId removed              -> BREAKING (response field removed)
+        amount: { type: integer }
+        currency: { type: string }
+        status:
+          type: string
+          enum: [open, paid, closed, refunded]   # BREAKING: response enum value added

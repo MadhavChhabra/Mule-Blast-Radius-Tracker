@@ -1,0 +1,25 @@
+openapi: 3.0.3
+info: { title: Orders Process API, version: 2.0.0 }
+paths:
+  /orders/{orderId}:
+    get:
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId: { type: string }
+                  # customerId removed  -> BREAKING for anyone reading it downstream
+                  status: { type: string, enum: [open, paid, closed, refunded] }  # response enum added -> BREAKING
+  /orders:
+    get:
+      responses:
+        '200': { description: ok }
+    post:
+      responses:
+        '201': { description: created }

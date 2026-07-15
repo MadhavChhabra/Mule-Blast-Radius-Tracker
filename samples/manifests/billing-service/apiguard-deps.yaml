@@ -1,0 +1,10 @@
+consumer: billing-service
+owner_team: billing
+reviewers: [ "gh:carol" ]
+slack_channel: "#billing-alerts"
+source_repo: acme/billing-service
+depends_on:
+  - api: orders-api
+    endpoints:
+      - path: "GET /orders/{id}"
+        fields: [ "customerId" ]

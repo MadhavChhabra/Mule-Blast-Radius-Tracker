@@ -1,0 +1,5 @@
+api: orders-api
+sources:
+  - endpoint: "GET /orders/{id}"
+    field: "customerId"
+    from: { api: customers-api, endpoint: "GET /customers/{id}", field: "id" }

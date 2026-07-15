@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: Orders API
+  version: 1.0.0
+  description: Sample producer API used for APIGuard demos.
+paths:
+  /orders/{id}:
+    get:
+      summary: Get an order
+      operationId: getOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+  /orders:
+    post:
+      summary: Create an order
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, currency]
+              properties:
+                amount: { type: integer }
+                currency: { type: string, enum: [USD, EUR, GBP] }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id: { type: string }
+        customerId: { type: string }
+        amount: { type: integer }
+        currency: { type: string }
+        status:
+          type: string
+          enum: [open, paid, closed]

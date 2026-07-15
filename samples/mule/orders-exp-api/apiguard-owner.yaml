@@ -1,0 +1,5 @@
+# Optional: one small file per repo so blast radius shows who to notify.
+owner_team: orders-experience
+reviewers: [ "gh:dan", "gh:erin" ]
+slack_channel: "#orders-exp-alerts"
+source_repo: acme/orders-exp-api
