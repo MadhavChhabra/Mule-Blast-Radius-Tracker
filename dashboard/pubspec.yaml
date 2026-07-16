@@ -1,0 +1,23 @@
+name: apiguard_dashboard
+description: "APIGuard dashboard — changes & risk, blast-radius graph, dependency explorer, changelog."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  graphview: 1.2.0   # pinned: 1.5.x requires Flutter 3.27+ (uses Color.withValues)
+  fl_chart: ^0.68.0
+  flutter_markdown: ^0.7.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
