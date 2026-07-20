@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -242,6 +244,15 @@ class _HomeShellState extends State<HomeShell> {
                         ],
                       ),
                     ),
+                    trailing: Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _ServerStatus(api: api),
+                        ),
+                      ),
+                    ),
                     destinations: _items
                         .map((it) => NavigationRailDestination(
                             icon: Icon(it.icon), label: Text(it.label)))
@@ -286,4 +297,70 @@ class _NavItem {
   final IconData icon;
   final Widget Function(ApiClient api, OpenFn open, NavTarget? target) build;
   _NavItem(this.label, this.icon, this.build);
+}
+
+/// Small liveness indicator pinned to the bottom of the nav rail: a coloured
+/// dot plus the server version, polled so the operator can see at a glance
+/// whether the backend is reachable.
+class _ServerStatus extends StatefulWidget {
+  final ApiClient api;
+  const _ServerStatus({required this.api});
+
+  @override
+  State<_ServerStatus> createState() => _ServerStatusState();
+}
+
+class _ServerStatusState extends State<_ServerStatus> {
+  HealthInfo? _health;
+  bool _error = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    _timer = Timer.periodic(const Duration(seconds: 20), (_) => _check());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    try {
+      final h = await widget.api.health();
+      if (mounted) {
+        setState(() {
+          _health = h;
+          _error = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final up = _health != null && _health!.up && !_error;
+    final color = _error
+        ? AppColors.breaking
+        : (up ? AppColors.additive : AppColors.neutral);
+    final label = up ? 'v${_health!.version}' : (_error ? 'Offline' : '…');
+    return Tooltip(
+      message: up
+          ? 'Connected — Wakegraph server ${_health!.version}'
+          : (_error ? 'Wakegraph server unreachable' : 'Checking server…'),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 8, height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(
+                fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      ]),
+    );
+  }
 }

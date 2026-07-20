@@ -86,6 +86,8 @@ class ApiClient {
     return (r as List).map((e) => InsightFinding.fromJson(e)).toList();
   }
 
+  Future<HealthInfo> health() async => HealthInfo.fromJson(await _get('/api/health'));
+
   Future<ScanResult> scan(String path) async {
     final r = await _post('/api/scan', {'path': path});
     invalidateGraph();
@@ -244,6 +246,16 @@ class ApiInfo {
   ApiInfo(this.id, this.name, this.repo);
   factory ApiInfo.fromJson(Map<String, dynamic> j) =>
       ApiInfo(j['id'], j['name'], j['repo']);
+}
+
+class HealthInfo {
+  final String status, name, version;
+  final int uptimeSeconds;
+  HealthInfo(this.status, this.name, this.version, this.uptimeSeconds);
+  bool get up => status == 'UP';
+  factory HealthInfo.fromJson(Map<String, dynamic> j) => HealthInfo(
+      j['status'] ?? 'UNKNOWN', j['name'] ?? 'Wakegraph', j['version'] ?? '',
+      j['uptimeSeconds'] ?? 0);
 }
 
 class ChangeDto {
