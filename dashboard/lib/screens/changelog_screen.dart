@@ -5,9 +5,23 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../api.dart';
 import '../widgets.dart';
 
-class ChangelogScreen extends StatelessWidget {
+class ChangelogScreen extends StatefulWidget {
   final ApiClient api;
   const ChangelogScreen({super.key, required this.api});
+
+  @override
+  State<ChangelogScreen> createState() => _ChangelogScreenState();
+}
+
+class _ChangelogScreenState extends State<ChangelogScreen> {
+  late Future<List<ChangelogEntry>> _future = widget.api.changelog();
+
+  void _reload() {
+    final next = widget.api.changelog();
+    setState(() {
+      _future = next;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,10 +31,15 @@ class ChangelogScreen extends StatelessWidget {
         const ScreenHeader('Changelog', 'Generated automatically from each classified diff.'),
         Expanded(
           child: AsyncView<List<ChangelogEntry>>(
-            future: api.changelog(),
+            future: _future,
+            onRetry: _reload,
             builder: (context, entries) {
               if (entries.isEmpty) {
-                return const Center(child: Text('No changelog entries yet.'));
+                return const EmptyState(
+                  icon: Icons.history_edu_outlined,
+                  title: 'No changelog entries yet',
+                  message: 'Run a change-impact analysis on an API to generate its changelog.',
+                );
               }
               return ListView.separated(
                 padding: const EdgeInsets.all(24),

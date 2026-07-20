@@ -9,6 +9,7 @@ import '../util/file_upload.dart';
 import '../widgets.dart';
 import '../widgets/global_search.dart';
 import '../widgets/impact_list.dart';
+import '../widgets/skeleton.dart';
 
 class ApiHubScreen extends StatefulWidget {
   final ApiClient api;
@@ -58,7 +59,10 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
           ]),
           Expanded(
             child: _api == null
-                ? const Center(child: Text('Pick an API to inspect.'))
+                ? const EmptyState(
+                    icon: Icons.search,
+                    title: 'Pick an API to inspect',
+                    message: 'Use “Change API” above or the search palette (Ctrl/Cmd-K) to choose one.')
                 : TabBarView(children: [
                     _EndpointsTab(api: widget.api, apiId: _api!, open: widget.open),
                     _ChangeImpactTab(api: widget.api, apiId: _api!),
@@ -109,6 +113,7 @@ class _EndpointsTabState extends State<_EndpointsTab> {
   List<String> _endpoints = [];
   String? _endpoint;
   bool _loading = true;
+  Object? _error;
   Future<EndpointInspect>? _detail;
 
   @override
@@ -118,7 +123,10 @@ class _EndpointsTabState extends State<_EndpointsTab> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final d = await widget.api.inspectEndpoint(widget.apiId);
       if (!mounted) return;
@@ -127,8 +135,13 @@ class _EndpointsTabState extends State<_EndpointsTab> {
         _loading = false;
         if (_endpoints.isNotEmpty) _select(_endpoints.first);
       });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e;
+        });
+      }
     }
   }
 
@@ -141,7 +154,8 @@ class _EndpointsTabState extends State<_EndpointsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
+    if (_error != null) return ApiErrorState(error: _error!, onRetry: _load);
     if (_endpoints.isEmpty) {
       return _empty(context, 'No endpoints known for this API yet.',
           'Add its repo in Sources and Sync — flows + property files give per-endpoint detail.');
@@ -376,7 +390,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ),
         const SizedBox(height: 12),
         if (_result != null)
-          AsyncView<PropagationResult>(future: _result!, builder: (context, r) => _fields(context, r)),
+          AsyncView<PropagationResult>(
+              future: _result!, onRetry: _run, builder: (context, r) => _fields(context, r)),
       ];
 
   List<Widget> _versionDiffBody(BuildContext context) => [
@@ -399,7 +414,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ]),
         const SizedBox(height: 12),
         if (_analysis != null)
-          AsyncView<AnalyzeResult>(future: _analysis!, builder: (context, r) => _diff(context, r)),
+          AsyncView<AnalyzeResult>(
+              future: _analysis!, onRetry: _analyze, builder: (context, r) => _diff(context, r)),
       ];
 
   Widget _specBox(String label, TextEditingController c) => Column(
@@ -706,10 +722,31 @@ class _GovernanceCard extends StatelessWidget {
   }
 }
 
-class _HistoryTab extends StatelessWidget {
+class _HistoryTab extends StatefulWidget {
   final ApiClient api;
   final String apiId;
   const _HistoryTab({required this.api, required this.apiId});
+
+  @override
+  State<_HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<_HistoryTab> {
+  late Future<List<ChangeDto>> _changes;
+  late Future<List<ChangelogEntry>> _changelog;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    _changes = widget.api.changes(widget.apiId);
+    _changelog = widget.api.changelog(api: widget.apiId);
+  }
+
+  void _reload() => setState(_load);
 
   @override
   Widget build(BuildContext context) {
@@ -717,11 +754,12 @@ class _HistoryTab extends StatelessWidget {
       const Text('Recent changes', style: TextStyle(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
       FutureBuilder<List<ChangeDto>>(
-        future: api.changes(apiId),
+        future: _changes,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator());
           }
+          if (snap.hasError) return _InlineError(error: snap.error!, onRetry: _reload);
           final changes = snap.data ?? [];
           if (changes.isEmpty) return const Text('No recorded changes for this API yet.');
           return Column(children: changes.take(50).map((c) => ListTile(
@@ -738,11 +776,12 @@ class _HistoryTab extends StatelessWidget {
       const Text('Changelog', style: TextStyle(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
       FutureBuilder<List<ChangelogEntry>>(
-        future: api.changelog(api: apiId),
+        future: _changelog,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator());
           }
+          if (snap.hasError) return _InlineError(error: snap.error!, onRetry: _reload);
           final entries = snap.data ?? [];
           if (entries.isEmpty) return const Text('No changelog yet — run a change impact analysis.');
           return Column(children: entries.map((e) => Card(
@@ -754,6 +793,30 @@ class _HistoryTab extends StatelessWidget {
         },
       ),
     ]);
+  }
+}
+
+class _InlineError extends StatelessWidget {
+  final Object error;
+  final VoidCallback onRetry;
+  const _InlineError({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final info = describeApiError(error);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Icon(info.icon, size: 16, color: info.color),
+        const SizedBox(width: 8),
+        Expanded(child: Text(info.detail, style: Theme.of(context).textTheme.bodySmall)),
+        TextButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh, size: 14),
+          label: const Text('Retry'),
+        ),
+      ]),
+    );
   }
 }
 
@@ -789,13 +852,5 @@ class _FieldChips extends StatelessWidget {
       );
 }
 
-Widget _empty(BuildContext context, String title, String sub) => Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          Text(sub, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
-        ]),
-      ),
-    );
+Widget _empty(BuildContext context, String title, String sub) =>
+    EmptyState(icon: Icons.travel_explore_outlined, title: title, message: sub);
