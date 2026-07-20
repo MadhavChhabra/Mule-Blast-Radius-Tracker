@@ -35,8 +35,12 @@ const _endpoint = '''
  "appLevelCalls":[],
  "calledBy":[{"consumer":"web-checkout-app","layer":"APP","viaEndpoint":"GET /orders","fields":["id"],"reviewers":["@ana"]}]}''';
 
-http.Client fakeApiClient() => MockClient((req) async {
+http.Client fakeApiClient({Set<String> failPaths = const {}}) => MockClient((req) async {
       final p = req.url.path;
+      if (failPaths.contains(p)) {
+        return http.Response('{"error":"synthetic failure"}', 500,
+            headers: {'content-type': 'application/json'});
+      }
       String body;
       if (p == '/api/graph') {
         body = _graph;
@@ -44,6 +48,8 @@ http.Client fakeApiClient() => MockClient((req) async {
         body = _insights;
       } else if (p == '/api/sources') {
         body = _sources;
+      } else if (p == '/api/health') {
+        body = '{"status":"UP","name":"Wakegraph","version":"0.1.0","uptimeSeconds":5}';
       } else if (p == '/api/sources/sync/status') {
         body = '{"state":"idle"}';
       } else if (p == '/api/endpoint') {
@@ -60,7 +66,8 @@ http.Client fakeApiClient() => MockClient((req) async {
       return http.Response(body, 200, headers: {'content-type': 'application/json'});
     });
 
-ApiClient fakeApi() => ApiClient(client: fakeApiClient());
+ApiClient fakeApi({Set<String> failPaths = const {}}) =>
+    ApiClient(client: fakeApiClient(failPaths: failPaths));
 
 /// Wrap a screen in a themed app and drive it at a desktop-width surface so the
 /// wide-layout branches (multi-column rows) are exercised, then let async data

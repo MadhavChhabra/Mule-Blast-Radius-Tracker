@@ -4,6 +4,8 @@ import 'package:apiguard_dashboard/screens/home_screen.dart';
 import 'package:apiguard_dashboard/screens/sources_screen.dart';
 import 'package:apiguard_dashboard/screens/graph_screen.dart';
 import 'package:apiguard_dashboard/screens/changelog_screen.dart';
+import 'package:apiguard_dashboard/screens/api_hub_screen.dart';
+import 'package:apiguard_dashboard/widgets.dart';
 
 import 'support/fake_api.dart';
 
@@ -43,6 +45,32 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Changelog'), findsWidgets);
-    expect(find.text('No changelog entries yet.'), findsOneWidget);
+    expect(find.byType(EmptyState), findsOneWidget);
+    expect(find.text('No changelog entries yet'), findsOneWidget);
+  });
+
+  testWidgets('API hub renders tabs and endpoints for a selected API', (tester) async {
+    await pumpScreen(tester,
+        ApiHubScreen(api: fakeApi(), initialApi: 'orders-exp-api', open: noopOpen));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('orders-exp-api'), findsWidgets);
+    expect(find.text('Endpoints'), findsWidgets);
+    expect(find.text('Change impact'), findsWidgets);
+    expect(find.text('Consumers & blast radius'), findsWidgets);
+  });
+
+  testWidgets('API hub Endpoints tab surfaces an error with retry, not a false empty state',
+      (tester) async {
+    await pumpScreen(
+        tester,
+        ApiHubScreen(
+            api: fakeApi(failPaths: {'/api/endpoint'}),
+            initialApi: 'orders-exp-api',
+            open: noopOpen));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Retry'), findsWidgets);
+    expect(find.textContaining('No endpoints known'), findsNothing);
   });
 }
