@@ -357,6 +357,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                   leading: const Icon(Icons.source_outlined, size: 18),
                   title: Text(_redact(url), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
                   trailing: IconButton(
+                    tooltip: 'Remove repo',
                     icon: const Icon(Icons.delete_outline, size: 18),
                     onPressed: () => _removeRepo(url),
                   ),
@@ -480,6 +481,7 @@ class _AnypointDialogState extends State<_AnypointDialog> {
               border: const OutlineInputBorder(),
               isDense: true,
               suffixIcon: IconButton(
+                tooltip: _obscure ? 'Show secret' : 'Hide secret',
                 icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 18),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),

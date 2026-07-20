@@ -107,8 +107,11 @@ class _GraphScreenState extends State<GraphScreen> {
             future: _future!,
             builder: (context, graph) {
               if (graph.nodes.isEmpty) {
-                return const Center(
-                    child: Text('No APIs yet. Run Discover (scan a repo) or connect Anypoint and Sync.'));
+                return const EmptyState(
+                  icon: Icons.hub_outlined,
+                  title: 'No estate map yet',
+                  message: 'Add a repo or connect Anypoint in Sources, then Sync everything to build the map.',
+                );
               }
               final connectedIds = _connectedIds(graph);
               final standalone = graph.nodes.length - connectedIds.length;
@@ -704,7 +707,7 @@ class _DetailPanel extends StatelessWidget {
             child: Text(node.label,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           ),
-          IconButton(onPressed: onClose, icon: const Icon(Icons.close)),
+          IconButton(tooltip: 'Close details', onPressed: onClose, icon: const Icon(Icons.close)),
         ]),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

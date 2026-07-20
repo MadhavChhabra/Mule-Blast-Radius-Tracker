@@ -4,7 +4,9 @@ import '../api.dart';
 import '../main.dart';
 import '../theme.dart';
 import '../util/file_upload.dart' as web_util;
+import '../widgets.dart';
 import '../widgets/global_search.dart';
+import '../widgets/skeleton.dart';
 
 class HomeScreen extends StatelessWidget {
   final ApiClient api;
@@ -107,19 +109,39 @@ class _EstateHealth extends StatelessWidget {
       future: api.graph(),
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const _HealthShell(child: Center(child: Padding(
-            padding: EdgeInsets.all(24), child: CircularProgressIndicator())));
+          return const _HealthShell(child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Shimmer(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SkeletonBox(width: 140, height: 16),
+                SizedBox(height: 16),
+                Row(children: [
+                  SkeletonBox(width: 120, height: 56, radius: 12),
+                  SizedBox(width: 10),
+                  SkeletonBox(width: 120, height: 56, radius: 12),
+                  SizedBox(width: 10),
+                  SkeletonBox(width: 120, height: 56, radius: 12),
+                ]),
+              ]),
+            ),
+          ));
         }
         if (snap.hasError) {
+          final info = describeApiError(snap.error!);
           return _HealthShell(child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(children: [
-              const Icon(Icons.cloud_off, color: AppColors.breaking, size: 18),
-              const SizedBox(width: 8),
-              Expanded(child: Text(
-                  'Server not reachable${apiBase.isEmpty ? '' : ' at $apiBase'}. '
-                  'Start it:  ./gradlew :server:bootRun --args=\'--spring.profiles.active=dev\'',
-                  style: Theme.of(context).textTheme.bodySmall)),
+              Icon(info.icon, color: info.color, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(info.title, style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(info.detail, style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                ]),
+              ),
             ]),
           ));
         }
@@ -186,7 +208,10 @@ class _EstateHealth extends StatelessWidget {
   }
 
   Widget _tile(String value, String label, Color color) => Builder(
-        builder: (context) => Container(
+        builder: (context) => Semantics(
+          label: '$value $label',
+          excludeSemantics: true,
+          child: Container(
           width: 134,
           padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
           decoration: BoxDecoration(
@@ -205,6 +230,7 @@ class _EstateHealth extends StatelessWidget {
                     fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0.5,
                     color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ]),
+        ),
         ),
       );
 }
