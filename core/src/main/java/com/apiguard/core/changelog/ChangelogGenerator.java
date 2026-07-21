@@ -9,14 +9,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Renders a classified diff into a categorized Markdown changelog
- * (Breaking / Added / Changed / Deprecated / Removed), following the
- * "Keep a Changelog" convention with a dedicated Breaking section on top.
- */
 public final class ChangelogGenerator {
 
-    /** Changelog categories, in display order. */
     private enum Category {
         BREAKING("⚠️ Breaking Changes"),
         ADDED("Added"),
@@ -35,9 +29,6 @@ public final class ChangelogGenerator {
         return generate(changes, null);
     }
 
-    /**
-     * @param versionLabel optional heading like {@code "v2.0.0 (2026-07-11)"}; when null no version header is emitted.
-     */
     public String generate(List<Change> changes, String versionLabel) {
         Map<Category, List<Change>> buckets = new EnumMap<>(Category.class);
         for (Category c : Category.values()) {

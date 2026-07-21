@@ -1,5 +1,3 @@
-// Root build configuration for the APIGuard multi-module project.
-// core/ is pure Java (no Spring). cli/ and server/ both depend on core.
 subprojects {
     apply plugin: 'java'
 

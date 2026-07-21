@@ -20,27 +20,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-/**
- * Auto-discovers a Mule application's dependency picture from its project files — no manifest needed.
- *
- * <p>It reads two sources of truth every Mule project already has:
- * <ul>
- *   <li><b>{@code pom.xml}</b> — Exchange API assets appear as Maven dependencies (classifier
- *       {@code raml}/{@code oas}/{@code http-api}…). These are the aggregate downstream APIs.</li>
- *   <li><b>flow XML</b> — {@code <http:request method=… path=… config-ref=…>} inside an APIkit
- *       endpoint flow (named like {@code get:\orders\(orderId):api-config}) tells you which
- *       downstream endpoint each of the app's own endpoints calls — the per-endpoint view.</li>
- * </ul>
- */
 public final class MuleProjectScanner {
 
     private static final Set<String> HTTP_VERBS =
             Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
 
-    // Connector namespace prefix -> the canonical end-system (system of record) it talks to. A Mule
-    // app reaches these through a connector, not an HTTP API, but they are real downstream producers
-    // (a DB, a SaaS system, a queue, a file system) and belong on the estate map. Whitelisted so we
-    // never mistake a flow-control or transform element for a backend call.
     private static final Map<String, String> BACKEND_CONNECTORS = Map.ofEntries(
             Map.entry("db", "Database"),
             Map.entry("salesforce", "Salesforce"),
@@ -64,11 +48,9 @@ public final class MuleProjectScanner {
             Map.entry("imap", "Email"),
             Map.entry("pop3", "Email"));
 
-    // Connector child elements that are configuration/parameters, not the operation itself.
     private static final Set<String> NON_OPERATION_LOCALS =
             Set.of("config", "connection", "request-connection", "pooling-profile", "reconnection");
 
-    // pom classifiers / heuristics that indicate an Exchange API asset (vs a connector/runtime dep).
     private static final Set<String> API_CLASSIFIERS =
             Set.of("raml", "oas", "http-api", "rest-api", "wsdl");
     private static final Set<String> IGNORED_GROUP_PREFIXES =
@@ -77,11 +59,6 @@ public final class MuleProjectScanner {
     private MuleProjectScanner() {
     }
 
-    /**
-     * Scan one project, or a folder of repos. If {@code root} directly contains a {@code pom.xml}
-     * it is scanned as a single Mule app; otherwise every descendant directory that contains a
-     * {@code pom.xml} with a {@code src/main/mule} folder is scanned. One entry per Mule app.
-     */
     public static List<MuleScan> scanAll(Path root) {
         if (Files.isRegularFile(root.resolve("pom.xml"))) {
             return List.of(scan(root));
@@ -99,12 +76,10 @@ public final class MuleProjectScanner {
         return scans;
     }
 
-    /** Scan a Mule project directory (the one containing {@code pom.xml}). */
     public static MuleScan scan(Path projectDir) {
         Path pom = projectDir.resolve("pom.xml");
         PomInfo pomInfo = Files.isRegularFile(pom) ? parsePom(pom) : new PomInfo("unknown", null, null, List.of());
 
-        // Map a downstream API's declared artifactId to a normalized key for config-ref matching.
         Map<String, String> apiByKey = new LinkedHashMap<>();
         for (String api : pomInfo.apis()) {
             apiByKey.put(normalize(api), api);
@@ -112,13 +87,13 @@ public final class MuleProjectScanner {
 
         List<MuleScan.InboundEndpoint> endpoints = new ArrayList<>();
         List<MuleScan.OutboundCall> orphanCalls = new ArrayList<>();
+        List<MuleScan.ConfigDriftWarning> configDrift = new ArrayList<>();
 
         Path muleDir = projectDir.resolve("src/main/mule");
         if (Files.isDirectory(muleDir)) {
-            // Read config properties/YAML, then resolve each http:request-config's host to a real
-            // downstream API — this is how relationships are actually wired in a Mule project.
+
             Map<String, String> props = loadProperties(projectDir);
-            Map<String, String> configToApi = collectConfigApis(muleDir, props, apiByKey);
+            Map<String, String> configToApi = collectConfigApis(muleDir, props, apiByKey, configDrift);
             try (Stream<Path> files = Files.walk(muleDir)) {
                 files.filter(p -> p.toString().endsWith(".xml"))
                         .sorted()
@@ -130,13 +105,9 @@ public final class MuleProjectScanner {
 
         MuleScan.Owner owner = readOwner(projectDir);
         return new MuleScan(pomInfo.artifactId(), pomInfo.groupId(), pomInfo.version(),
-                owner, endpoints, pomInfo.apis(), orphanCalls);
+                owner, endpoints, pomInfo.apis(), orphanCalls, configDrift);
     }
 
-    /**
-     * Read optional {@code apiguard-owner.yaml} from the project root to attach ownership
-     * (team / reviewers / slack) so the blast radius shows who to notify. Absent → empty owner.
-     */
     private static MuleScan.Owner readOwner(Path projectDir) {
         for (String name : new String[]{"apiguard-owner.yaml", "apiguard-owner.yml"}) {
             Path file = projectDir.resolve(name);
@@ -169,8 +140,6 @@ public final class MuleProjectScanner {
         @com.fasterxml.jackson.annotation.JsonProperty("source_repo")
         public String sourceRepo;
     }
-
-    // ---------------------------------------------------------------- pom
 
     private record PomInfo(String artifactId, String groupId, String version, List<String> apis) {
     }
@@ -212,11 +181,9 @@ public final class MuleProjectScanner {
         if (classifier != null && API_CLASSIFIERS.contains(classifier.toLowerCase())) {
             return true;
         }
-        // A zip dependency that isn't a connector is very likely an Exchange API asset.
+
         return "zip".equalsIgnoreCase(type);
     }
-
-    // ---------------------------------------------------------------- flows
 
     private static void scanFlowFile(Path file, Map<String, String> apiByKey, Map<String, String> configToApi,
                                      List<MuleScan.InboundEndpoint> endpoints,
@@ -232,9 +199,9 @@ public final class MuleProjectScanner {
                         calls.add(call);
                     }
                 }
-                // End-system (DB / SaaS / queue / file) calls this flow makes through a connector.
+
                 collectBackendCalls(flow, calls);
-                // DataWeave field lineage: which downstream response fields this flow reads.
+
                 List<String> dwFields = DataWeaveLineage.referencedFields(flow.getTextContent());
                 if (!dwFields.isEmpty()) {
                     calls.replaceAll(c -> c.withFields(dwFields));
@@ -243,7 +210,7 @@ public final class MuleProjectScanner {
                 if (parsed != null) {
                     endpoints.add(new MuleScan.InboundEndpoint(parsed.method(), parsed.path(), calls));
                 } else {
-                    orphanCalls.addAll(calls); // sub-flow / non-APIkit flow
+                    orphanCalls.addAll(calls);
                 }
             }
         } catch (Exception e) {
@@ -251,12 +218,6 @@ public final class MuleProjectScanner {
         }
     }
 
-    /**
-     * Walk a flow and emit one {@link MuleScan.OutboundCall} per end-system operation (a
-     * {@code <db:select>}, {@code <salesforce:query>}, {@code <jms:publish>}…). We stop descending
-     * once a connector element is reached so its parameter children ({@code db:sql}, {@code db:in-param})
-     * are not mistaken for operations of their own.
-     */
     private static void collectBackendCalls(Element node, List<MuleScan.OutboundCall> out) {
         for (Element child : childElements(node)) {
             String prefix = child.getPrefix();
@@ -270,10 +231,10 @@ public final class MuleProjectScanner {
                     out.add(new MuleScan.OutboundCall(system, local.toUpperCase(), "",
                             child.getAttribute("config-ref")));
                 }
-                // Either way, don't descend into a connector element's own children.
+
                 continue;
             }
-            // Descend through flow-control / transform scopes to find nested connector calls.
+
             collectBackendCalls(child, out);
         }
     }
@@ -292,34 +253,26 @@ public final class MuleProjectScanner {
                 path == null ? "" : path, configRef);
     }
 
-    /**
-     * Map an {@code config-ref} to a downstream API. Priority: the host resolved from the matching
-     * {@code <http:request-config>} (via properties) → a declared Exchange (pom) API by name → a
-     * cleaned-up config name.
-     */
     private static String resolveApi(String configRef, Map<String, String> apiByKey, Map<String, String> configToApi) {
         if (configRef == null || configRef.isBlank()) {
             return "unknown-api";
         }
         String key = normalize(configRef);
-        // 1) Real host from the config's request-connection (resolved through properties).
+
         String fromHost = configToApi.get(key);
         if (fromHost != null && !fromHost.isBlank()) {
             return fromHost;
         }
-        // 2) Match the config name against a declared Exchange API.
+
         for (Map.Entry<String, String> e : apiByKey.entrySet()) {
             if (key.equals(e.getKey()) || key.contains(e.getKey()) || e.getKey().contains(key)) {
                 return e.getValue();
             }
         }
-        // 3) Fall back to a cleaned-up config name so the edge is still meaningful.
+
         return configRef.replaceAll("(?i)[-_]?config$", "").replaceAll("(?i)HTTP_?Request_?config.*", "");
     }
 
-    // ---------------------------------------------------------------- properties + config hosts
-
-    /** Load {@code *.properties} / {@code *.yaml} / {@code *.yml} under {@code src/main/resources}. */
     private static Map<String, String> loadProperties(Path projectDir) {
         Map<String, String> props = new LinkedHashMap<>();
         Path res = projectDir.resolve("src/main/resources");
@@ -340,7 +293,7 @@ public final class MuleProjectScanner {
                         flattenYaml("", OWNER_YAML.readTree(Files.readString(p)), props);
                     }
                 } catch (Exception ignored) {
-                    // A malformed config file shouldn't fail the whole scan.
+
                 }
             });
         } catch (IOException ignored) {
@@ -357,9 +310,9 @@ public final class MuleProjectScanner {
         }
     }
 
-    /** Build a map of normalized {@code request-config} name → downstream API, using resolved hosts. */
     private static Map<String, String> collectConfigApis(Path muleDir, Map<String, String> props,
-                                                         Map<String, String> apiByKey) {
+                                                         Map<String, String> apiByKey,
+                                                         List<MuleScan.ConfigDriftWarning> configDrift) {
         Map<String, String> configToApi = new LinkedHashMap<>();
         try (Stream<Path> files = Files.walk(muleDir)) {
             files.filter(p -> p.toString().endsWith(".xml")).forEach(p -> {
@@ -375,7 +328,12 @@ public final class MuleProjectScanner {
                             host = conn.getAttribute("host");
                             break;
                         }
-                        String api = apiFromHost(resolvePlaceholders(host, props), apiByKey);
+                        String resolved = resolvePlaceholders(host, props);
+                        String unresolved = unresolvedPlaceholder(resolved);
+                        if (unresolved != null) {
+                            configDrift.add(new MuleScan.ConfigDriftWarning(name, host, unresolved));
+                        }
+                        String api = apiFromHost(resolved, apiByKey);
                         if (api != null) {
                             configToApi.put(normalize(name), api);
                         }
@@ -388,7 +346,14 @@ public final class MuleProjectScanner {
         return configToApi;
     }
 
-    /** Resolve {@code ${a.b.c}} placeholders in a value against the properties map (one pass). */
+    private static String unresolvedPlaceholder(String value) {
+        if (value == null) {
+            return null;
+        }
+        Matcher m = Pattern.compile("\\$\\{([^}]+)}").matcher(value);
+        return m.find() ? "${" + m.group(1).trim() + "}" : null;
+    }
+
     private static String resolvePlaceholders(String value, Map<String, String> props) {
         if (value == null || !value.contains("${")) {
             return value;
@@ -403,7 +368,6 @@ public final class MuleProjectScanner {
         return sb.toString();
     }
 
-    /** Derive an API name from a resolved host, then align it to a declared Exchange API if possible. */
     private static String apiFromHost(String host, Map<String, String> apiByKey) {
         if (host == null || host.isBlank() || host.contains("${")) {
             return null;
@@ -424,20 +388,15 @@ public final class MuleProjectScanner {
         String key = normalize(label);
         for (Map.Entry<String, String> e : apiByKey.entrySet()) {
             if (key.equals(e.getKey()) || key.contains(e.getKey()) || e.getKey().contains(key)) {
-                return e.getValue(); // align to the declared Exchange asset name
+                return e.getValue();
             }
         }
-        return label; // otherwise the hostname label is the best signal we have
+        return label;
     }
 
     record Endpoint(String method, String path) {
     }
 
-    /**
-     * Parse an APIkit flow name like {@code get:\orders\(orderId):orders-exp-api-config} or
-     * {@code post:\orders:application\json:cfg} into {@code POST /orders}.
-     * Returns {@code null} when the name isn't an APIkit endpoint (sub-flow, private flow…).
-     */
     static Endpoint parseEndpointName(String name) {
         if (name == null || name.isBlank()) {
             return null;
@@ -447,7 +406,7 @@ public final class MuleProjectScanner {
         if (!HTTP_VERBS.contains(method)) {
             return null;
         }
-        // The resource segment is the first part (after the method) that begins with a backslash.
+
         for (int i = 1; i < parts.length; i++) {
             String seg = parts[i];
             if (seg.startsWith("\\")) {
@@ -460,8 +419,6 @@ public final class MuleProjectScanner {
         }
         return new Endpoint(method, "/");
     }
-
-    // ---------------------------------------------------------------- xml helpers
 
     private static DocumentBuilder builder() throws Exception {
         DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
@@ -517,7 +474,6 @@ public final class MuleProjectScanner {
         return out;
     }
 
-    /** All descendant elements (any depth) whose local name matches. */
     private static List<Element> elementsByLocalName(Element root, String localName) {
         List<Element> out = new ArrayList<>();
         collect(root, localName, out, root);
@@ -527,12 +483,12 @@ public final class MuleProjectScanner {
     private static void collect(Element current, String localName, List<Element> out, Element root) {
         for (Element child : childElements(current)) {
             String ln = child.getLocalName() != null ? child.getLocalName() : child.getNodeName();
-            // Strip a namespace prefix if present in nodeName (e.g. "http:request").
+
             if (ln.contains(":")) {
                 ln = ln.substring(ln.indexOf(':') + 1);
             }
             boolean matches = localName.equals(ln);
-            // Don't descend into nested flows when collecting flows themselves.
+
             if (matches) {
                 out.add(child);
             }
@@ -542,7 +498,6 @@ public final class MuleProjectScanner {
         }
     }
 
-    /** Thrown when a Mule project cannot be scanned. */
     public static final class MuleScanException extends RuntimeException {
         public MuleScanException(String message, Throwable cause) {
             super(message, cause);

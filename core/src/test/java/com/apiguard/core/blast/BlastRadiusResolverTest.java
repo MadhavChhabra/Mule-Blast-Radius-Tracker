@@ -48,7 +48,7 @@ class BlastRadiusResolverTest {
 
     @Test
     void fieldLevelDownstreamMatching() {
-        // customerId removed -> both consumers read it -> both impacted.
+
         Change removed = Change.of(Classification.BREAKING, ChangeKind.RESPONSE_FIELD_REMOVED,
                 "GET /orders/{id}", "response.200.customerId", "customerId", "removed");
         var impact = resolver().resolve("orders-api", List.of(removed)).get(0);
@@ -59,7 +59,7 @@ class BlastRadiusResolverTest {
 
     @Test
     void fieldPrecisionExcludesUnrelatedConsumers() {
-        // status changed -> only orders-web tracks status; billing tracks only customerId.
+
         Change statusChange = Change.of(Classification.BREAKING, ChangeKind.RESPONSE_ENUM_VALUE_ADDED,
                 "GET /orders/{id}", "response.200.status", "status", "enum added");
         var impact = resolver().resolve("orders-api", List.of(statusChange)).get(0);
@@ -86,7 +86,7 @@ class BlastRadiusResolverTest {
 
     @Test
     void wholeApiDependencyMatchesAnyEndpoint() {
-        // An Anypoint-style consumer that depends on the whole API (path "*") is hit by any change.
+
         DependencyManifest wholeApi = ManifestLoader.loadDependency("""
                 consumer: mobile-app
                 owner_team: mobile

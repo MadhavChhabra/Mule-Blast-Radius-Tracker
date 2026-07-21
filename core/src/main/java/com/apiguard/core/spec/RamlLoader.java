@@ -31,16 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Loads a RAML 1.0 spec and converts it into the swagger {@link OpenAPI} model, so the existing
- * {@link com.apiguard.core.diff.DiffEngine} and all its rules apply unchanged. Exchange REST assets
- * are usually RAML, so this is what makes breaking-change detection work on a MuleSoft estate.
- *
- * <p>Covers the constructs the diff engine reasons about: resources → paths, methods → operations,
- * URI/query parameters (with required-ness), request bodies, responses, and object/array/enum/scalar
- * types (nested). Richer RAML (traits, resource types, unions) is resolved by the parser before we
- * walk it.
- */
 public final class RamlLoader {
 
     private RamlLoader() {
@@ -54,10 +44,6 @@ public final class RamlLoader {
         return convert(new RamlModelBuilder().buildApi(content, "raml"));
     }
 
-    /**
-     * Load a RAML file from disk, resolving its {@code !include}s relative to the file's location.
-     * This is what makes an unzipped Exchange asset (root RAML + library/type includes) parseable.
-     */
     public static OpenAPI loadFile(java.nio.file.Path ramlFile) {
         return convert(new RamlModelBuilder().buildApi(ramlFile.toFile()));
     }
@@ -102,7 +88,6 @@ public final class RamlLoader {
     private static Operation toOperation(Resource resource, Method method) {
         Operation op = new Operation();
 
-        // Path parameters (from the resource) + query parameters (from the method).
         for (TypeDeclaration up : resource.uriParameters()) {
             op.addParametersItem(toParameter(up, "path", true));
         }
@@ -110,13 +95,11 @@ public final class RamlLoader {
             op.addParametersItem(toParameter(qp, "query", qp.required()));
         }
 
-        // Request body (application/json).
         Schema<?> reqSchema = jsonSchema(method.body());
         if (reqSchema != null) {
             op.setRequestBody(new RequestBody().required(true).content(jsonContent(reqSchema)));
         }
 
-        // Responses.
         ApiResponses responses = new ApiResponses();
         for (Response response : method.responses()) {
             String code = response.code() != null ? response.code().value() : "200";
@@ -132,7 +115,6 @@ public final class RamlLoader {
         }
         op.setResponses(responses);
 
-        // Security (securedBy at the method level → auth required).
         if (method.securedBy() != null && !method.securedBy().isEmpty()
                 && method.securedBy().get(0) != null && method.securedBy().get(0).securityScheme() != null) {
             op.addSecurityItem(new SecurityRequirement().addList(method.securedBy().get(0).securityScheme().name()));
@@ -148,7 +130,6 @@ public final class RamlLoader {
                 .schema(toSchema(td));
     }
 
-    /** Pick the application/json body from a list of media-type bodies and build its schema. */
     private static Schema<?> jsonSchema(List<TypeDeclaration> bodies) {
         if (bodies == null || bodies.isEmpty()) {
             return null;
@@ -170,7 +151,6 @@ public final class RamlLoader {
         return new Content().addMediaType("application/json", new MediaType().schema(schema));
     }
 
-    /** Recursively convert a RAML type declaration to a swagger schema. */
     private static Schema<?> toSchema(TypeDeclaration td) {
         Schema<Object> schema = new Schema<>();
         if (td instanceof ObjectTypeDeclaration obj) {
@@ -221,7 +201,7 @@ public final class RamlLoader {
             case "boolean" -> "boolean";
             case "array" -> "array";
             case "object" -> "object";
-            default -> "string"; // string, date-only, datetime, file, or a named type fallback
+            default -> "string";
         };
     }
 

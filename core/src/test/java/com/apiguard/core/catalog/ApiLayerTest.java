@@ -9,7 +9,7 @@ class ApiLayerTest {
     @Test
     void classifiesByMuleSoftNamingConvention() {
         assertEquals(ApiLayer.SYSTEM, ApiLayer.classify("gm-micorp-sapi"));
-        assertEquals(ApiLayer.SYSTEM, ApiLayer.classify("hr-portal-sys-api-dev")); // system wins over "portal"
+        assertEquals(ApiLayer.SYSTEM, ApiLayer.classify("hr-portal-sys-api-dev"));
         assertEquals(ApiLayer.PROCESS, ApiLayer.classify("gm-micorp-papi"));
         assertEquals(ApiLayer.EXPERIENCE, ApiLayer.classify("orders-exp-api"));
         assertEquals(ApiLayer.EXPERIENCE, ApiLayer.classify("mobile-eapi"));
@@ -25,7 +25,7 @@ class ApiLayerTest {
         assertEquals(ApiLayer.BACKEND, ApiLayer.classify("orders-db"));
         assertEquals(ApiLayer.BACKEND, ApiLayer.classify("JMS Queue"));
         assertEquals(ApiLayer.BACKEND, ApiLayer.classify("SAP"));
-        // "sap" as a token must not swallow the "sapi" system-API suffix.
+
         assertEquals(ApiLayer.SYSTEM, ApiLayer.classify("gm-micorp-sapi"));
     }
 }

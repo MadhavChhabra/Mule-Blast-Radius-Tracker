@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-/** Loads {@code apiguard-deps.yaml} (consumer) and producer {@code sources} manifests from disk or strings. */
 public final class ManifestLoader {
 
     private static final ObjectMapper YAML = new ObjectMapper(new YAMLFactory())
@@ -38,10 +37,6 @@ public final class ManifestLoader {
         }
     }
 
-    /**
-     * Discover manifests under a directory tree. Files named {@code apiguard-deps.yaml} are treated
-     * as consumer manifests; files named {@code apiguard-sources.yaml} as producer lineage.
-     */
     public static Loaded discover(Path root) {
         List<DependencyManifest> consumers = new ArrayList<>();
         List<FieldSourceManifest> sources = new ArrayList<>();

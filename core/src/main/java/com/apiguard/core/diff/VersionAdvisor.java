@@ -4,15 +4,6 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Recommends a semantic-version bump from a classified diff:
- * <ul>
- *   <li>any {@link Classification#BREAKING} → <b>MAJOR</b></li>
- *   <li>otherwise any {@link Classification#ADDITIVE} → <b>MINOR</b></li>
- *   <li>otherwise any change at all → <b>PATCH</b></li>
- *   <li>no changes → <b>NONE</b></li>
- * </ul>
- */
 public final class VersionAdvisor {
 
     public enum Bump {MAJOR, MINOR, PATCH, NONE}
@@ -41,10 +32,6 @@ public final class VersionAdvisor {
         return additive ? Bump.MINOR : Bump.PATCH;
     }
 
-    /**
-     * Apply a bump to a semver string, preserving a leading {@code v} if present. Returns
-     * {@code null} when the current version is not semver-parseable (then only the bump is advised).
-     */
     public static String nextVersion(String current, Bump bump) {
         if (current == null || bump == Bump.NONE) {
             return null;

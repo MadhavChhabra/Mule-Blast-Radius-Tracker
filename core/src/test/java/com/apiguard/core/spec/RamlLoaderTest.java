@@ -67,7 +67,7 @@ class RamlLoaderTest {
 
     @Test
     void ramlDiffDetectsSameBreakingChangesAsOas() {
-        // The whole point: RAML flows through the existing DiffEngine unchanged.
+
         List<Change> changes = new DiffEngine().diff(SpecLoader.loadString(V1), SpecLoader.loadString(V2));
 
         assertTrue(changes.stream().anyMatch(c -> c.kind() == ChangeKind.RESPONSE_FIELD_REMOVED
@@ -81,7 +81,7 @@ class RamlLoaderTest {
 
     @Test
     void resolvesLibrariesDataTypesAndExamplesAcrossFiles() throws java.io.IOException {
-        // A realistic Exchange asset spread across files: root + uses-library + datatype + example.
+
         java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("apiguard-raml-multi-");
         try {
             write(dir, "libraries/common.raml", """
@@ -128,7 +128,7 @@ class RamlLoaderTest {
             OpenAPI api = RamlLoader.loadFile(root);
             var schema = api.getPaths().get("/orders/{orderId}").getGet()
                     .getResponses().get("200").getContent().get("application/json").getSchema();
-            // The datatype (from a separate file, itself pulling an example) is fully inlined.
+
             assertTrue(schema.getProperties().containsKey("customerId"),
                     () -> "cross-file datatype should resolve: " + schema.getProperties());
             assertTrue(schema.getProperties().containsKey("status"));

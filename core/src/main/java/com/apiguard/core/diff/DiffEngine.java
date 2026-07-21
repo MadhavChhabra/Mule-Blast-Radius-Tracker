@@ -24,28 +24,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
-/**
- * The semantic diff engine — the heart of APIGuard.
- *
- * <p>It walks two parsed {@link OpenAPI} models and emits a list of {@link Change}s,
- * each classified {@link Classification#BREAKING}, {@link Classification#NON_BREAKING}
- * or {@link Classification#ADDITIVE}.
- *
- * <h2>The governing principle: request/response asymmetry</h2>
- * <ul>
- *   <li><b>Request side</b> (parameters, request body) — what the server <i>accepts</i>.
- *       Widening it (new optional field, extra accepted enum value) is <b>safe</b>.
- *       Narrowing it (new required field, removed accepted enum value, tightened type)
- *       is <b>breaking</b> because previously-valid callers are now rejected.</li>
- *   <li><b>Response side</b> (response body) — what the server <i>returns</i>.
- *       Removing a field or changing its type is <b>breaking</b>. Even <i>widening</i> a
- *       response enum is breaking, because a strict consumer may not handle the new value.</li>
- * </ul>
- * Narrowing either side is breaking; that single rule explains most of the classifications below.
- */
 public final class DiffEngine {
 
-    /** Which side of the contract a schema sits on — this decides the classification. */
     private enum Side {REQUEST, RESPONSE}
 
     private static final int MAX_DEPTH = 40;
@@ -79,8 +59,6 @@ public final class DiffEngine {
 
         return changes;
     }
-
-    // ---------------------------------------------------------------- operations
 
     private void diffPathItem(String path, PathItem oldItem, PathItem newItem,
                               OpenAPI oldApi, OpenAPI newApi, List<Change> out) {
@@ -119,8 +97,6 @@ public final class DiffEngine {
         diffSecurity(endpoint, effectiveSecurity(oldOp, oldApi), effectiveSecurity(newOp, newApi), out);
     }
 
-    // ---------------------------------------------------------------- parameters
-
     private void diffParameters(String endpoint, Operation oldOp, Operation newOp, List<Change> out) {
         Map<String, Parameter> oldParams = indexParams(oldOp.getParameters());
         Map<String, Parameter> newParams = indexParams(newOp.getParameters());
@@ -131,7 +107,7 @@ public final class DiffEngine {
             String name = key.substring(key.indexOf(':') + 1);
             String pointer = "param." + name;
 
-            if (o == null) { // added
+            if (o == null) {
                 if (isRequired(n.getRequired())) {
                     out.add(Change.of(Classification.BREAKING, ChangeKind.PARAM_ADDED_REQUIRED,
                             endpoint, pointer, name, "Required " + n.getIn() + " parameter '" + name + "' added"));
@@ -141,7 +117,7 @@ public final class DiffEngine {
                 }
                 continue;
             }
-            if (n == null) { // removed
+            if (n == null) {
                 boolean wasRequired = isRequired(o.getRequired());
                 out.add(Change.of(wasRequired ? Classification.BREAKING : Classification.NON_BREAKING,
                         ChangeKind.PARAM_REMOVED, endpoint, pointer, name,
@@ -158,12 +134,10 @@ public final class DiffEngine {
                 out.add(Change.of(Classification.NON_BREAKING, ChangeKind.PARAM_MADE_OPTIONAL,
                         endpoint, pointer, name, "Parameter '" + name + "' is no longer required"));
             }
-            // Parameters are inputs → diff their schema on the REQUEST side.
+
             diffSchema(o.getSchema(), n.getSchema(), Side.REQUEST, endpoint, pointer, name, out, newVisited(), 0);
         }
     }
-
-    // ---------------------------------------------------------------- request body
 
     private void diffRequestBody(String endpoint, RequestBody oldBody, RequestBody newBody, List<Change> out) {
         Schema<?> oldSchema = firstSchema(oldBody != null ? oldBody.getContent() : null);
@@ -186,8 +160,6 @@ public final class DiffEngine {
             diffSchema(oldSchema, newSchema, Side.REQUEST, endpoint, "request", null, out, newVisited(), 0);
         }
     }
-
-    // ---------------------------------------------------------------- responses
 
     private void diffResponses(String endpoint, ApiResponses oldResponses, ApiResponses newResponses, List<Change> out) {
         Map<String, ApiResponse> oldR = oldResponses != null ? oldResponses : new ApiResponses();
@@ -220,8 +192,6 @@ public final class DiffEngine {
         }
     }
 
-    // ---------------------------------------------------------------- security
-
     private void diffSecurity(String endpoint, List<SecurityRequirement> oldSec,
                               List<SecurityRequirement> newSec, List<Change> out) {
         boolean oldHas = oldSec != null && !oldSec.isEmpty();
@@ -235,8 +205,6 @@ public final class DiffEngine {
         }
     }
 
-    // ---------------------------------------------------------------- schema recursion
-
     private void diffSchema(Schema<?> oldS, Schema<?> newS, Side side, String endpoint,
                             String pointer, String field, List<Change> out,
                             Set<Long> visited, int depth) {
@@ -245,20 +213,17 @@ public final class DiffEngine {
         }
         long fingerprint = ((long) System.identityHashCode(oldS) << 32) ^ System.identityHashCode(newS);
         if (!visited.add(fingerprint)) {
-            return; // cycle guard
+            return;
         }
 
         String oldType = typeOf(oldS);
         String newType = typeOf(newS);
 
-        // Composed schemas (oneOf/anyOf/allOf): a structural change of variant count is treated
-        // as a type change. When counts match we recurse element-wise.
         if (oldS instanceof ComposedSchema || newS instanceof ComposedSchema) {
             diffComposed(oldS, newS, side, endpoint, pointer, field, out, visited, depth);
             return;
         }
 
-        // Type change (including format narrowing, e.g. int64 -> int32) — breaking on both sides.
         if (oldType != null && newType != null && !oldType.equals(newType)) {
             out.add(Change.of(Classification.BREAKING, ChangeKind.FIELD_TYPE_CHANGED,
                     endpoint, pointer, field,
@@ -273,7 +238,6 @@ public final class DiffEngine {
             return;
         }
 
-        // Nullability — asymmetric.
         boolean oldNullable = Boolean.TRUE.equals(oldS.getNullable());
         boolean newNullable = Boolean.TRUE.equals(newS.getNullable());
         if (side == Side.RESPONSE && !oldNullable && newNullable) {
@@ -291,7 +255,6 @@ public final class DiffEngine {
             return;
         }
 
-        // Object properties.
         diffProperties(oldS, newS, side, endpoint, pointer, out, visited, depth);
     }
 
@@ -311,7 +274,7 @@ public final class DiffEngine {
             String childPointer = pointer.equals("request") || pointer.startsWith("response")
                     ? pointer + "." + name : pointer + "." + name;
 
-            if (o == null) { // property added
+            if (o == null) {
                 if (side == Side.REQUEST) {
                     if (newRequired.contains(name)) {
                         out.add(Change.of(Classification.BREAKING, ChangeKind.REQUEST_FIELD_ADDED_REQUIRED,
@@ -326,7 +289,7 @@ public final class DiffEngine {
                 }
                 continue;
             }
-            if (n == null) { // property removed
+            if (n == null) {
                 if (side == Side.REQUEST) {
                     out.add(Change.of(Classification.NON_BREAKING, ChangeKind.REQUEST_FIELD_REMOVED,
                             endpoint, childPointer, name, "Request field '" + name + "' removed (server accepts less)"));
@@ -337,7 +300,6 @@ public final class DiffEngine {
                 continue;
             }
 
-            // Present in both: required transitions (request side) + recurse.
             if (side == Side.REQUEST) {
                 boolean wasReq = oldRequired.contains(name);
                 boolean nowReq = newRequired.contains(name);
@@ -368,8 +330,6 @@ public final class DiffEngine {
         }
     }
 
-    // ---------------------------------------------------------------- enums
-
     private void diffEnum(Schema<?> oldS, Schema<?> newS, Side side, String endpoint,
                           String pointer, String field, List<Change> out) {
         List<?> oldEnum = oldS.getEnum();
@@ -386,18 +346,18 @@ public final class DiffEngine {
         added.removeAll(oldValues);
 
         if (side == Side.REQUEST) {
-            // Server accepts a smaller set → previously-valid inputs now rejected → breaking.
+
             for (String value : removed) {
                 out.add(Change.of(Classification.BREAKING, ChangeKind.REQUEST_ENUM_VALUE_REMOVED,
                         endpoint, pointer, field, "Request enum value '" + value + "' no longer accepted"));
             }
-            // Server accepts more → additive.
+
             for (String value : added) {
                 out.add(Change.of(Classification.ADDITIVE, ChangeKind.REQUEST_ENUM_VALUE_ADDED,
                         endpoint, pointer, field, "Request enum now also accepts '" + value + "'"));
             }
         } else {
-            // Server may return a new value a strict consumer can't handle → breaking.
+
             for (String value : added) {
                 out.add(Change.of(Classification.BREAKING, ChangeKind.RESPONSE_ENUM_VALUE_ADDED,
                         endpoint, pointer, field, "Response enum may now return '" + value + "'"));
@@ -408,8 +368,6 @@ public final class DiffEngine {
             }
         }
     }
-
-    // ---------------------------------------------------------------- helpers
 
     private static Set<Long> newVisited() {
         return new HashSet<>();
@@ -450,7 +408,7 @@ public final class DiffEngine {
         if (schema.getType() != null) {
             return schema.getType();
         }
-        // OpenAPI 3.1 style: types may be in a set; fall back to structural inference.
+
         if (schema.getTypes() != null && !schema.getTypes().isEmpty()) {
             return schema.getTypes().iterator().next();
         }

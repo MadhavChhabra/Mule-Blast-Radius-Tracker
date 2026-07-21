@@ -1,17 +1,13 @@
-// core/ — pure Java library: spec parsing + semantic diff engine + changelog + blast-radius model.
-// No Spring, no HTTP. The CLI and server both depend on this module.
 plugins {
     id 'java-library'
 }
 
 dependencies {
-    // OpenAPI 3.x parsing (Apache-2.0). Resolves $refs into a usable model.
+
     api 'io.swagger.parser.v3:swagger-parser:2.1.22'
 
-    // RAML 0.8/1.0 parsing (MuleSoft's own parser, ASL-2.0) — Exchange specs are usually RAML.
     implementation 'org.raml:raml-parser-2:1.0.51'
 
-    // YAML/JSON for dependency manifests and parsed-spec serialization.
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2'
 

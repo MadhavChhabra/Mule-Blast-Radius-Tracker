@@ -55,7 +55,7 @@ class SpecLoaderTest {
                 """);
         io.swagger.v3.oas.models.media.Schema<?> schema = api.getPaths().get("/o").getGet()
                 .getResponses().get("200").getContent().get("application/json").getSchema();
-        // resolveFully inlines the $ref so properties are directly reachable.
+
         assertNotNull(schema.getProperties());
         io.swagger.v3.oas.models.media.Schema<?> idSchema =
                 (io.swagger.v3.oas.models.media.Schema<?>) schema.getProperties().get("id");

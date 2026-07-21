@@ -8,13 +8,11 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Shared helpers for building tiny before/after spec pairs and asserting on the resulting diff. */
 final class DiffTestSupport {
 
     private DiffTestSupport() {
     }
 
-    /** Wrap a YAML {@code paths:} (and optional {@code components:}) block in a minimal valid OpenAPI 3 doc. */
     static OpenAPI spec(String body) {
         String doc = """
                 openapi: 3.0.3
@@ -29,7 +27,6 @@ final class DiffTestSupport {
         return new DiffEngine().diff(spec(oldBody), spec(newBody));
     }
 
-    /** Assert exactly one change of the given kind exists and return it. */
     static Change single(List<Change> changes, ChangeKind kind) {
         List<Change> matches = changes.stream().filter(c -> c.kind() == kind).toList();
         assertEquals(1, matches.size(),

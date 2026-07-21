@@ -12,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MuleProjectScannerTest {
 
-    /** Locate the sample Mule project relative to the repo root (tests run from the module dir). */
     private static Path sampleProject() {
         for (Path base : new Path[]{Path.of("samples/mule/orders-exp-api"),
                 Path.of("../samples/mule/orders-exp-api")}) {
@@ -27,7 +26,7 @@ class MuleProjectScannerTest {
     void scanExtractsAppNameAndDeclaredApis() {
         MuleScan scan = MuleProjectScanner.scan(sampleProject());
         assertEquals("orders-exp-api", scan.app());
-        // pom declares two API assets; connectors are ignored.
+
         assertTrue(scan.declaredApis().contains("orders-process-api"));
         assertTrue(scan.declaredApis().contains("customers-sys-api"));
         assertEquals(2, scan.declaredApis().size(), () -> "connectors must be filtered: " + scan.declaredApis());
@@ -41,7 +40,7 @@ class MuleProjectScannerTest {
         var getOrderById = scan.endpoints().stream()
                 .filter(e -> e.label().equals("GET /orders/{orderId}"))
                 .findFirst().orElseThrow();
-        // That endpoint calls the process API and the customers system API.
+
         assertEquals(2, getOrderById.calls().size());
         assertTrue(getOrderById.calls().stream()
                 .anyMatch(c -> c.api().equals("orders-process-api") && c.endpoint().equals("GET /orders/{orderId}")));
@@ -51,7 +50,7 @@ class MuleProjectScannerTest {
 
     @Test
     void resolvesDownstreamApiFromPropertiesAndConfigHost() throws java.io.IOException {
-        // A Mule project where the downstream host is a ${property}, resolved from a YAML config file.
+
         java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("apiguard-props-");
         try {
             write(dir, "pom.xml", """
@@ -84,7 +83,7 @@ class MuleProjectScannerTest {
 
             MuleScan scan = MuleProjectScanner.scan(dir);
             var call = scan.endpoints().get(0).calls().get(0);
-            // The config-ref "Payments_Config" resolves to the API via the ${property} host, not a name guess.
+
             assertEquals("payments-sys-api", call.api(), () -> "resolved API was " + call.api());
         } finally {
             deleteRecursively(dir);
@@ -135,10 +134,10 @@ class MuleProjectScannerTest {
 
             MuleScan scan = MuleProjectScanner.scan(dir);
             var calls = scan.endpoints().get(0).calls();
-            // The DB and Salesforce end systems are discovered as downstream producers.
+
             assertTrue(calls.stream().anyMatch(c -> c.api().equals("Database")), () -> "calls: " + calls);
             assertTrue(calls.stream().anyMatch(c -> c.api().equals("Salesforce")), () -> "calls: " + calls);
-            // The db:sql parameter child must NOT be mistaken for a second operation.
+
             assertEquals(2, calls.size(), () -> "exactly one op per connector: " + calls);
         } finally {
             deleteRecursively(dir);
@@ -150,7 +149,7 @@ class MuleProjectScannerTest {
         assertEquals("GET", MuleProjectScanner.parseEndpointName("get:\\orders\\(orderId):cfg").method());
         assertEquals("/orders/{orderId}", MuleProjectScanner.parseEndpointName("get:\\orders\\(orderId):cfg").path());
         assertEquals("/orders", MuleProjectScanner.parseEndpointName("post:\\orders:application\\json:cfg").path());
-        // Not an APIkit endpoint → null.
+
         assertEquals(null, MuleProjectScanner.parseEndpointName("some-private-subflow"));
     }
 
@@ -160,7 +159,7 @@ class MuleProjectScannerTest {
         DependencyManifest m = scan.toManifest();
         assertEquals("orders-exp-api", m.consumer);
         assertNotNull(m.dependsOn);
-        // The exp API becomes a consumer of the process API (its GET /orders/{orderId} endpoint).
+
         var processDep = m.dependsOn.stream().filter(d -> d.api.equals("orders-process-api")).findFirst().orElseThrow();
         assertTrue(processDep.endpoints.stream().anyMatch(e -> e.path.equals("GET /orders/{orderId}")));
     }
@@ -169,8 +168,7 @@ class MuleProjectScannerTest {
     void datweaveGivesFieldLevelDependencies() {
         MuleScan scan = MuleProjectScanner.scan(sampleProject());
         DependencyManifest m = scan.toManifest();
-        // The GET /orders/{orderId} flow's DataWeave reads payload.orderId/customerId/status,
-        // so the dependency on the process API is now field-level, not just endpoint-level.
+
         var processDep = m.dependsOn.stream().filter(d -> d.api.equals("orders-process-api")).findFirst().orElseThrow();
         var getById = processDep.endpoints.stream().filter(e -> e.path.equals("GET /orders/{orderId}")).findFirst().orElseThrow();
         assertTrue(getById.fields.contains("customerId"), () -> "fields: " + getById.fields);
@@ -183,7 +181,7 @@ class MuleProjectScannerTest {
         MuleScan scan = MuleProjectScanner.scan(sampleProject());
         assertEquals("orders-experience", scan.owner().ownerTeam());
         assertTrue(scan.owner().reviewers().contains("gh:dan"));
-        // Owner metadata flows into the manifest so blast radius shows who to notify.
+
         DependencyManifest m = scan.toManifest();
         assertEquals("orders-experience", m.ownerTeam);
         assertEquals("#orders-exp-alerts", m.slackChannel);

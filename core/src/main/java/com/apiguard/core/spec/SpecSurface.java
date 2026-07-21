@@ -12,22 +12,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 
-/**
- * The queryable "surface" of an API spec: for each endpoint ({@code METHOD /path}), the set of
- * response field names a consumer could read. This is what a developer sees when they ask
- * "which field am I about to change?" — the candidate fields for change-propagation.
- *
- * <p>Fields are the top-level property names of the 2xx JSON response schema (arrays unwrapped to
- * their item object), which is exactly the granularity the blast-radius resolver and DataWeave
- * lineage track ({@code payload.field}). Endpoint keys match the manifest format so they resolve
- * directly.
- */
 public final class SpecSurface {
 
     private SpecSurface() {
     }
 
-    /** endpoint ({@code "GET /orders/{id}"}) -> ordered set of response field names. */
     public static Map<String, LinkedHashSet<String>> responseFields(OpenAPI api) {
         Map<String, LinkedHashSet<String>> out = new LinkedHashMap<>();
         if (api == null || api.getPaths() == null) {
@@ -65,7 +54,7 @@ public final class SpecSurface {
         }
         MediaType media = content.get("application/json");
         if (media == null && !content.isEmpty()) {
-            media = content.values().iterator().next(); // fall back to whatever media type exists
+            media = content.values().iterator().next();
         }
         if (media != null) {
             collectSchemaProperties(media.getSchema(), fields);
@@ -77,7 +66,7 @@ public final class SpecSurface {
         if (schema == null) {
             return;
         }
-        // Unwrap an array response to the object it contains.
+
         if (schema.getItems() != null) {
             collectSchemaProperties(schema.getItems(), fields);
             return;

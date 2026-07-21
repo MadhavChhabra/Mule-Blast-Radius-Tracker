@@ -13,14 +13,8 @@ import static com.apiguard.core.diff.DiffTestSupport.single;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * One test per breaking-change rule from build brief §5, each using a minimal before/after
- * spec pair. These tests are the specification of the engine's behaviour — read them to
- * understand exactly what APIGuard classifies and why.
- */
 class DiffEngineTest {
 
-    // A reusable GET /orders/{id} operation body with a response object.
     private static String getOrders(String responseProps) {
         return """
                 paths:
@@ -114,10 +108,10 @@ class DiffEngineTest {
     @DisplayName("Request fields & parameters (what the server accepts)")
     class RequestFields {
         private static String postOrders(String requestProps, String requiredList) {
-            // requestProps is one property per line; indent each to sit under `properties:` (14 spaces).
+
             StringBuilder props = new StringBuilder();
             for (String line : requestProps.strip().split("\n")) {
-                props.append("                ").append(line.strip()).append('\n'); // 16 spaces: under properties:
+                props.append("                ").append(line.strip()).append('\n');
             }
             return "paths:\n"
                     + "  /orders:\n"
