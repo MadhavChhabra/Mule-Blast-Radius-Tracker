@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Build & test
+        run: ./gradlew build --no-daemon
+      - name: Upload CLI jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: apiguard-cli
+          path: cli/build/libs/apiguard.jar

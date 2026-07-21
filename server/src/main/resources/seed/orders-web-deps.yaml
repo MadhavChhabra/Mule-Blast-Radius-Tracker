@@ -1,0 +1,12 @@
+consumer: orders-web
+owner_team: web-checkout
+reviewers: [ "gh:alice", "gh:bob" ]
+slack_channel: "#checkout-alerts"
+source_repo: acme/orders-web
+depends_on:
+  - api: orders-api
+    endpoints:
+      - path: "GET /orders/{id}"
+        fields: [ "customerId", "status", "amount" ]
+      - path: "POST /orders"
+        fields: [ "couponCode" ]

@@ -1,0 +1,20 @@
+# Desktop / single-exe profile: embedded file-based H2 (persists across restarts under ~/.apiguard),
+# and the dashboard opened in the browser automatically. No demo data — a real user starts empty and
+# connects Anypoint or scans a repo (set SEED_DEMO=true to load the sample estate for a demo).
+spring:
+  datasource:
+    url: jdbc:h2:file:${user.home}/.apiguard/db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: true
+
+apiguard:
+  seed:
+    enabled: ${SEED_DEMO:false}
+  open-browser: true

@@ -1,0 +1,19 @@
+# Zero-infra profile: in-memory H2 (PostgreSQL compatibility mode). Starts EMPTY so real synced/scanned
+# data is never mixed with sample APIs. To load the demo estate for a walkthrough, pass SEED_DEMO=true:
+#   ./gradlew :server:bootRun --args='--spring.profiles.active=dev --apiguard.seed.enabled=true'
+spring:
+  datasource:
+    url: jdbc:h2:mem:apiguard;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: true
+
+apiguard:
+  seed:
+    enabled: ${SEED_DEMO:false}

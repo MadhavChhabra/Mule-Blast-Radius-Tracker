@@ -1,0 +1,80 @@
+plugins {
+    id 'org.springframework.boot' version '3.3.2'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+// Generate build-info.properties so the running server can report its real
+// build version (surfaced via /api/health and /api/version) instead of a literal.
+springBoot {
+    buildInfo()
+}
+
+dependencies {
+    implementation project(':core')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+processResources {
+    def flutterWeb = file("${projectDir}/../dashboard/build/web")
+    if (flutterWeb.exists()) {
+        from(flutterWeb) { into 'static' }
+    }
+}
+
+tasks.register('desktopStage', Copy) {
+    dependsOn 'bootJar'
+    from(layout.buildDirectory.file("libs/server-${version}.jar"))
+    into layout.buildDirectory.dir('desktop-stage')
+}
+
+def jpackageExe = {
+    def isWin = System.getProperty('os.name').toLowerCase().contains('win')
+    return "${System.getProperty('java.home')}/bin/jpackage" + (isWin ? '.exe' : '')
+}
+
+def jpackageCommon = { java.util.List extra ->
+    def stage = layout.buildDirectory.dir('desktop-stage').get().asFile
+    def cmd = [jpackageExe(),
+               '--name', 'APIGuard',
+               '--app-version', "${version}".replaceAll('[^0-9.]', '') ?: '1.0.0',
+               '--input', stage.absolutePath,
+               '--main-jar', "server-${version}.jar",
+               '--java-options', '-Dspring.profiles.active=desktop',
+               '--vendor', 'APIGuard']
+    cmd.addAll(extra)
+    return cmd
+}
+
+tasks.register('desktopApp', Exec) {
+    group = 'distribution'
+    description = 'Build a portable single-folder desktop app (APIGuard.exe) via jpackage.'
+    dependsOn 'desktopStage'
+    def dest = layout.buildDirectory.dir('desktop').get().asFile
+    doFirst { delete dest }
+    commandLine jpackageCommon(['--type', 'app-image', '--dest', dest.absolutePath])
+}
+
+tasks.register('desktopInstaller', Exec) {
+    group = 'distribution'
+    description = 'Build a native installer (.msi/.dmg/.deb) via jpackage. Windows needs WiX Toolset.'
+    dependsOn 'desktopStage'
+    def dest = layout.buildDirectory.dir('desktop-installer').get().asFile
+    doFirst { delete dest; dest.mkdirs() }
+    commandLine jpackageCommon(['--dest', dest.absolutePath])
+}

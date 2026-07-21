@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: apiguard
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/apiguard}
+    username: ${DB_USER:apiguard}
+    password: ${DB_PASSWORD:apiguard}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+server:
+  port: ${PORT:8080}
+
+apiguard:
+  # Demo data is OFF by default so a real estate is never mixed with sample APIs / a fake breaking
+  # change. Only the `dev` profile seeds a demo estate. Real users start empty and connect Anypoint
+  # or scan a repo.
+  seed:
+    enabled: ${SEED_DEMO:false}
+  # GitHub integration — leave blank to disable (the app then only logs what it would do).
+  github:
+    token: ${GITHUB_TOKEN:}
+    api-url: ${GITHUB_API_URL:https://api.github.com}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  # Slack Incoming Webhook — leave blank to disable notifications.
+  slack:
+    webhook-url: ${SLACK_WEBHOOK_URL:}
+  # Anypoint Platform (Connected App, client-credentials) — org-wide discovery via API Manager
+  # contracts + Exchange. Leave client-id/secret blank to disable. The secret stays server-side.
+  anypoint:
+    base-url: ${ANYPOINT_BASE_URL:https://anypoint.mulesoft.com}
+    client-id: ${ANYPOINT_CLIENT_ID:}
+    client-secret: ${ANYPOINT_CLIENT_SECRET:}
+    org-id: ${ANYPOINT_ORG_ID:}
+    environment: ${ANYPOINT_ENV:}
+
+# Allow the Flutter dashboard (dev server) to call the API.
+cors:
+  allowed-origins: ${CORS_ORIGINS:http://localhost:*}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

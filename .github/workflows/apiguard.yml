@@ -1,0 +1,52 @@
+name: APIGuard
+
+# Demonstrates the APIGuard gate on every pull request. This repo ships two sample
+# specs (v1 -> v2) with intentional breaking changes, so the check always produces a
+# report and a PR comment. Set `fail-on-breaking: true` to turn it into a hard gate.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write   # required to post the PR comment
+
+jobs:
+  apiguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run APIGuard (demo: v1 -> v2)
+        uses: ./action
+        with:
+          old-spec: samples/orders-api/openapi-v1.yaml
+          new-spec: samples/orders-api/openapi-v2.yaml
+          api: orders-api
+          manifests: samples/manifests
+          fail-on-breaking: 'false'
+
+  # ---------------------------------------------------------------------------
+  # Realistic template: diff a single tracked spec between the PR base and head.
+  # Enable by removing `if: false` and pointing SPEC at your real spec path.
+  # ---------------------------------------------------------------------------
+  apiguard-real:
+    if: false
+    runs-on: ubuntu-latest
+    env:
+      SPEC: samples/orders-api/openapi.yaml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract baseline spec
+        run: git show "${{ github.event.pull_request.base.sha }}:$SPEC" > /tmp/old-spec.yaml
+      - name: Run APIGuard
+        uses: ./action
+        with:
+          old-spec: /tmp/old-spec.yaml
+          new-spec: ${{ env.SPEC }}
+          api: orders-api
+          manifests: .
+          fail-on-breaking: 'true'
