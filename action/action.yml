@@ -1,0 +1,62 @@
+name: 'Wakegraph'
+description: 'Detect breaking OpenAPI changes, compute field-level blast radius, and comment on the PR.'
+branding:
+  icon: 'shield'
+  color: 'purple'
+inputs:
+  old-spec:
+    description: 'Path to the baseline OpenAPI spec (e.g. produced with `git show base:spec.yaml`).'
+    required: true
+  new-spec:
+    description: 'Path to the new OpenAPI spec in the working tree.'
+    required: true
+  api:
+    description: 'API name for blast-radius matching (matches the `api:` key in manifests). If set, runs `check`.'
+    required: false
+    default: ''
+  manifests:
+    description: 'Directory to scan for apiguard-deps.yaml / apiguard-sources.yaml.'
+    required: false
+    default: '.'
+  server:
+    description: 'Wakegraph server URL. With `api`, runs `impact`: blast radius from the real synced estate, PR-ready report.'
+    required: false
+    default: ''
+  fail-on-breaking:
+    description: 'Fail the check when breaking changes are detected.'
+    required: false
+    default: 'true'
+  comment:
+    description: 'Post a PR comment with the report.'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token used to post the PR comment.'
+    required: false
+    default: ${{ github.token }}
+outputs:
+  breaking-count:
+    description: 'Number of breaking changes detected.'
+    value: ${{ steps.run.outputs.breaking-count }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    - name: Run Wakegraph
+      id: run
+      shell: bash
+      env:
+        INPUT_OLD_SPEC: ${{ inputs.old-spec }}
+        INPUT_NEW_SPEC: ${{ inputs.new-spec }}
+        INPUT_API: ${{ inputs.api }}
+        INPUT_SERVER: ${{ inputs.server }}
+        INPUT_MANIFESTS: ${{ inputs.manifests }}
+        INPUT_FAIL_ON_BREAKING: ${{ inputs.fail-on-breaking }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        ACTION_DIR: ${{ github.action_path }}
+      run: ${{ github.action_path }}/entrypoint.sh
