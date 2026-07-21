@@ -60,6 +60,22 @@ void main() {
     expect(find.text('Consumers & blast radius'), findsWidgets);
   });
 
+  testWidgets('Estate map empty state offers a Sources shortcut', (tester) async {
+    await pumpScreen(tester, GraphScreen(api: fakeApi(emptyGraph: true), open: noopOpen));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('No estate map yet'), findsOneWidget);
+    expect(find.text('Go to Sources'), findsOneWidget);
+  });
+
+  testWidgets('API hub with no APIs prompts to choose one', (tester) async {
+    await pumpScreen(tester, ApiHubScreen(api: fakeApi(emptyGraph: true), open: noopOpen));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Pick an API to inspect'), findsOneWidget);
+    expect(find.text('Choose an API'), findsOneWidget);
+  });
+
   testWidgets('API hub Endpoints tab surfaces an error with retry, not a false empty state',
       (tester) async {
     await pumpScreen(

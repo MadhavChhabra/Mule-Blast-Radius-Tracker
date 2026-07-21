@@ -6,6 +6,8 @@ Future<PickedBinary?> pickBinaryFile() async => null;
 
 void openDownload(String url) {}
 
+void openExternal(String url) {}
+
 String? loadStoredApiKey() => null;
 
 void storeApiKey(String? key) {}

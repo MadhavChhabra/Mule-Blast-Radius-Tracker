@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api.dart';
-import '../theme.dart';
+import 'skeleton.dart';
 
-Future<String?> showGlobalSearch(BuildContext context, ApiClient api) {
-  return showDialog<String>(
+class SearchSelection {
+  final String api;
+  final String? endpoint;
+  final String? field;
+  const SearchSelection({required this.api, this.endpoint, this.field});
+}
+
+Future<SearchSelection?> showGlobalSearch(BuildContext context, ApiClient api) {
+  return showDialog<SearchSelection>(
     context: context,
     builder: (_) => _GlobalSearchDialog(api: api),
   );
@@ -19,13 +28,29 @@ class _GlobalSearchDialog extends StatefulWidget {
 }
 
 class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
-  late Future<GraphDto> _graph;
+  Timer? _debounce;
+  Future<SearchResults>? _results;
   String _q = '';
 
   @override
   void initState() {
     super.initState();
-    _graph = widget.api.graph();
+    _results = widget.api.search('');
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String v) {
+    _q = v.trim();
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 140), () {
+      if (!mounted) return;
+      setState(() => _results = widget.api.search(_q));
+    });
   }
 
   @override
@@ -33,7 +58,7 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
     return Dialog(
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 560),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -44,55 +69,113 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   border: OutlineInputBorder(),
-                  hintText: 'Search APIs, apps, systems…',
+                  hintText: 'Search APIs, endpoints, fields…',
                 ),
-                onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+                onChanged: _onQueryChanged,
               ),
             ),
             const Divider(height: 1),
             Flexible(
-              child: FutureBuilder<GraphDto>(
-                future: _graph,
+              child: FutureBuilder<SearchResults>(
+                future: _results,
                 builder: (context, snap) {
                   if (snap.connectionState != ConnectionState.done) {
-                    return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+                      child: Shimmer(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          SkeletonBox(width: 90, height: 12),
+                          SizedBox(height: 10),
+                          SkeletonBox(height: 14),
+                          SizedBox(height: 8),
+                          SkeletonBox(width: 260, height: 14),
+                          SizedBox(height: 20),
+                          SkeletonBox(width: 90, height: 12),
+                          SizedBox(height: 10),
+                          SkeletonBox(height: 14),
+                        ]),
+                      ),
+                    );
                   }
-                  final nodes = (snap.data?.nodes ?? [])
-                      .where((n) => _q.isEmpty || n.label.toLowerCase().contains(_q) || n.id.toLowerCase().contains(_q))
-                      .toList()
-                    ..sort((a, b) => b.dependedOnBy.compareTo(a.dependedOnBy));
-                  if (nodes.isEmpty) {
-                    return const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('No matches.')));
+                  if (snap.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(snap.error.toString().replaceFirst('Exception: ', '')),
+                    );
                   }
-                  return ListView.builder(
+                  final r = snap.data ?? const SearchResults([], [], []);
+                  if (r.isEmpty) {
+                    return const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(child: Text('No matches.')));
+                  }
+                  return ListView(
                     shrinkWrap: true,
-                    itemCount: nodes.length,
-                    itemBuilder: (context, i) {
-                      final n = nodes[i];
-                      final color = AppColors.forLayer(n.layer);
-                      return ListTile(
-                        leading: Container(width: 10, height: 10,
-                            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                        title: Text(n.label),
-                        subtitle: Text(AppColors.layerLabel(n.layer),
-                            style: TextStyle(color: color, fontSize: 12)),
-                        trailing: Text('↓${n.dependsOn}  ↑${n.dependedOnBy}',
-                            style: Theme.of(context).textTheme.bodySmall),
-                        onTap: () => Navigator.of(context).pop(n.id),
-                      );
-                    },
+                    children: [
+                      if (r.apis.isNotEmpty) ..._section(context, 'APIs & apps', [
+                        for (final a in r.apis)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.api_outlined, size: 20),
+                            title: Text(a.api),
+                            onTap: () => Navigator.of(context).pop(
+                                SearchSelection(api: a.api)),
+                          ),
+                      ]),
+                      if (r.endpoints.isNotEmpty) ..._section(context, 'Endpoints', [
+                        for (final e in r.endpoints)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.route_outlined, size: 20),
+                            title: Text(e.endpoint,
+                                style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                            subtitle: Text(e.api,
+                                style: TextStyle(fontSize: 11,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            onTap: () => Navigator.of(context).pop(
+                                SearchSelection(api: e.api, endpoint: e.endpoint)),
+                          ),
+                      ]),
+                      if (r.fields.isNotEmpty) ..._section(context, 'Fields', [
+                        for (final f in r.fields)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.data_object_outlined, size: 20),
+                            title: Text(f.field,
+                                style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                            subtitle: Text('${f.api}  ·  ${f.endpoint}',
+                                style: TextStyle(fontSize: 11,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            onTap: () => Navigator.of(context).pop(
+                                SearchSelection(api: f.api, endpoint: f.endpoint, field: f.field)),
+                          ),
+                      ]),
+                    ],
                   );
                 },
               ),
             ),
             const Divider(height: 1),
-            const Padding(
-              padding: EdgeInsets.all(10),
-              child: Text('Select to open in the Endpoint inspector', style: TextStyle(fontSize: 12)),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Text('Selecting an endpoint or field opens the API hub focused on it.',
+                  style: Theme.of(context).textTheme.bodySmall),
             ),
           ],
         ),
       ),
     );
   }
+
+  List<Widget> _section(BuildContext context, String label, List<Widget> tiles) => [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Text(label.toUpperCase(),
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ),
+        ...tiles,
+      ];
 }

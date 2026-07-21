@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -8,14 +10,44 @@ import '../widgets.dart';
 import '../widgets/global_search.dart';
 import '../widgets/skeleton.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final ApiClient api;
   final OpenFn open;
   const HomeScreen({super.key, required this.api, required this.open});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  Key _wizardKey = UniqueKey();
+
+  ApiClient get api => widget.api;
+  OpenFn get open => widget.open;
+
+  void _onWizardDone() {
+    api.invalidateGraph();
+    setState(() => _wizardKey = UniqueKey());
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    return FutureBuilder<GraphDto>(
+      key: _wizardKey,
+      future: api.graph(),
+      builder: (context, snap) {
+        final loading = snap.connectionState != ConnectionState.done;
+        final empty = !loading && !snap.hasError && (snap.data?.nodes.isEmpty ?? true);
+        if (empty) {
+          return _FirstRunWizard(api: api, open: open, onDone: _onWizardDone);
+        }
+        return _buildDashboard(context, scheme);
+      },
+    );
+  }
+
+  Widget _buildDashboard(BuildContext context, ColorScheme scheme) {
     return ListView(
       padding: const EdgeInsets.all(28),
       children: [
@@ -28,8 +60,8 @@ class HomeScreen extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
             const Spacer(),
             OutlinedButton.icon(
-              onPressed: () => showGlobalSearch(context, api).then((id) {
-                if (id != null) open(Tabs.endpoint, api: id);
+              onPressed: () => showGlobalSearch(context, api).then((sel) {
+                if (sel != null) open(Tabs.apiHub, api: sel.api, endpoint: sel.endpoint, field: sel.field);
               }),
               icon: const Icon(Icons.search, size: 18),
               label: const Text('Search'),
@@ -94,6 +126,394 @@ class HomeScreen extends StatelessWidget {
         const SizedBox(height: 24),
         _QuickStart(open: open),
       ],
+    );
+  }
+}
+
+class _FirstRunWizard extends StatefulWidget {
+  final ApiClient api;
+  final OpenFn open;
+  final VoidCallback onDone;
+  const _FirstRunWizard({required this.api, required this.open, required this.onDone});
+
+  @override
+  State<_FirstRunWizard> createState() => _FirstRunWizardState();
+}
+
+class _FirstRunWizardState extends State<_FirstRunWizard> {
+  final _clientId = TextEditingController();
+  final _clientSecret = TextEditingController();
+  final _orgId = TextEditingController();
+  final _env = TextEditingController();
+  final _repoUrl = TextEditingController();
+
+  final List<String> _repos = [];
+  bool _anypointConfigured = false;
+  String? _anypointOrgLabel;
+  int _step = 0;
+  bool _busy = false;
+  String? _error;
+  SyncProgress? _progress;
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _prime();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _clientId.dispose();
+    _clientSecret.dispose();
+    _orgId.dispose();
+    _env.dispose();
+    _repoUrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _prime() async {
+    try {
+      final s = await widget.api.sourcesStatus();
+      if (!mounted) return;
+      setState(() {
+        _anypointConfigured = s.anypointConfigured;
+        _anypointOrgLabel = _formatOrg(s.anypointOrg, s.anypointEnv);
+        _repos.clear();
+        _repos.addAll(s.repos);
+        _step = _anypointConfigured || _repos.isNotEmpty ? 1 : 0;
+        if (_repos.isNotEmpty) _step = 2;
+      });
+    } catch (_) {}
+  }
+
+  static String? _formatOrg(String? org, String? env) {
+    if (org == null && env == null) return null;
+    if (org != null && env != null) return '$org · $env';
+    return org ?? env;
+  }
+
+  Future<void> _saveAnypoint() async {
+    if (_clientId.text.trim().isEmpty || _clientSecret.text.trim().isEmpty) {
+      setState(() => _error = 'Client ID and secret are required.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final s = await widget.api.sourcesConfigureAnypoint(
+        clientId: _clientId.text.trim(),
+        clientSecret: _clientSecret.text.trim(),
+        orgId: _orgId.text.trim().isEmpty ? null : _orgId.text.trim(),
+        environment: _env.text.trim().isEmpty ? null : _env.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _anypointConfigured = s.anypointConfigured;
+        _anypointOrgLabel = _formatOrg(s.anypointOrg, s.anypointEnv);
+        _clientSecret.clear();
+        _step = 1;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _busy = false; _error = _clean(e); });
+    }
+  }
+
+  Future<void> _addRepo() async {
+    final url = _repoUrl.text.trim();
+    if (url.isEmpty) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      final s = await widget.api.sourcesAddRepo(url);
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _repos
+          ..clear()
+          ..addAll(s.repos);
+        _repoUrl.clear();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _busy = false; _error = _clean(e); });
+    }
+  }
+
+  Future<void> _startSync() async {
+    setState(() { _busy = true; _error = null; _progress = null; });
+    try {
+      final p = await widget.api.startSync();
+      if (!mounted) return;
+      setState(() => _progress = p);
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollSync());
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _busy = false; _error = _clean(e); });
+    }
+  }
+
+  Future<void> _pollSync() async {
+    try {
+      final p = await widget.api.syncStatus();
+      if (!mounted) return;
+      setState(() => _progress = p);
+      if (p.isDone || p.isFailed) {
+        _pollTimer?.cancel();
+        _busy = false;
+        if (p.isDone) {
+          await Future.delayed(const Duration(milliseconds: 400));
+          if (mounted) widget.onDone();
+        }
+      }
+    } catch (_) {}
+  }
+
+  String _clean(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+  bool get _canGoStep1 => _anypointConfigured || _repos.isNotEmpty;
+  bool get _canSync => _anypointConfigured || _repos.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          children: [
+            Row(children: [
+              Icon(Icons.shield_outlined, size: 34, color: scheme.primary),
+              const SizedBox(width: 12),
+              Text('Welcome to Wakegraph',
+                  style: Theme.of(context).textTheme.headlineMedium
+                      ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
+            ]),
+            const SizedBox(height: 6),
+            Text('Three quick steps to see your MuleSoft estate. This is minimum-setup, '
+                'not a one-way door — you can change anything later from Sources.',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 24),
+            if (_error != null)
+              Card(
+                color: AppColors.breaking.withOpacity(0.08),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(children: [
+                    const Icon(Icons.error_outline, color: AppColors.breaking, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(_error!)),
+                  ]),
+                ),
+              ),
+            Card(
+              child: Stepper(
+                currentStep: _step,
+                controlsBuilder: (_, __) => const SizedBox.shrink(),
+                onStepTapped: (i) {
+                  if (i == 2 && !_canSync) return;
+                  setState(() => _step = i);
+                },
+                steps: [
+                  _anypointStep(context),
+                  _reposStep(context),
+                  _syncStep(context),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () => widget.open(Tabs.sources),
+              icon: const Icon(Icons.settings_outlined, size: 16),
+              label: const Text('Skip the wizard — go to Sources'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Step _anypointStep(BuildContext context) {
+    final done = _anypointConfigured;
+    return Step(
+      state: done ? StepState.complete : (_step == 0 ? StepState.editing : StepState.indexed),
+      isActive: _step >= 0,
+      title: Row(children: [
+        const Text('Connect Anypoint', style: TextStyle(fontWeight: FontWeight.w700)),
+        if (done) ...[
+          const SizedBox(width: 8),
+          Chip(
+            visualDensity: VisualDensity.compact,
+            label: Text(_anypointOrgLabel ?? 'connected'),
+            avatar: const Icon(Icons.check_circle, size: 16, color: AppColors.additive),
+          ),
+        ],
+      ]),
+      content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Paste a Connected App credential with API Manager: Read '
+            '(optionally Exchange: Read). Secrets are stored in memory only.'),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientId,
+          enabled: !_busy,
+          decoration: const InputDecoration(
+              isDense: true, border: OutlineInputBorder(), labelText: 'Client ID'),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _clientSecret,
+          enabled: !_busy,
+          obscureText: true,
+          decoration: const InputDecoration(
+              isDense: true, border: OutlineInputBorder(), labelText: 'Client Secret'),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: TextField(
+            controller: _orgId,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+                isDense: true, border: OutlineInputBorder(),
+                labelText: 'Org ID (optional)'),
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: TextField(
+            controller: _env,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+                isDense: true, border: OutlineInputBorder(),
+                labelText: 'Environment (optional)'),
+          )),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          FilledButton.icon(
+            onPressed: _busy ? null : _saveAnypoint,
+            icon: const Icon(Icons.link, size: 18),
+            label: Text(done ? 'Update' : 'Connect'),
+          ),
+          const SizedBox(width: 10),
+          TextButton(
+            onPressed: _busy ? null : () => setState(() => _step = 1),
+            child: const Text('Skip for now'),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  Step _reposStep(BuildContext context) {
+    final done = _repos.isNotEmpty;
+    return Step(
+      state: done
+          ? StepState.complete
+          : (_step == 1 ? StepState.editing : StepState.indexed),
+      isActive: _step >= 1,
+      title: Row(children: [
+        const Text('Add your repos', style: TextStyle(fontWeight: FontWeight.w700)),
+        if (done) ...[
+          const SizedBox(width: 8),
+          Chip(
+            visualDensity: VisualDensity.compact,
+            label: Text('${_repos.length} added'),
+            avatar: const Icon(Icons.check_circle, size: 16, color: AppColors.additive),
+          ),
+        ],
+      ]),
+      content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Paste a GitHub/Bitbucket repo URL, or an org URL — orgs expand to '
+            'every repo they own. You can add more than one.'),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: TextField(
+            controller: _repoUrl,
+            enabled: !_busy,
+            decoration: const InputDecoration(
+                isDense: true, border: OutlineInputBorder(),
+                hintText: 'https://github.com/your-org  or  https://github.com/your-org/orders-exp-api'),
+            onSubmitted: (_) => _addRepo(),
+          )),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: _busy ? null : _addRepo,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Add'),
+          ),
+        ]),
+        if (_repos.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            for (final r in _repos)
+              Chip(
+                label: Text(r, style: const TextStyle(fontSize: 12)),
+                avatar: const Icon(Icons.source_outlined, size: 14),
+              ),
+          ]),
+        ],
+        const SizedBox(height: 14),
+        Row(children: [
+          FilledButton.icon(
+            onPressed: _busy || !_canGoStep1 ? null : () => setState(() => _step = 2),
+            icon: const Icon(Icons.arrow_forward, size: 18),
+            label: const Text('Continue'),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  Step _syncStep(BuildContext context) {
+    final p = _progress;
+    final running = p?.isRunning == true;
+    final done = p?.isDone == true;
+    final failed = p?.isFailed == true;
+    return Step(
+      state: done
+          ? StepState.complete
+          : failed
+              ? StepState.error
+              : (_step == 2 ? StepState.editing : StepState.indexed),
+      isActive: _step >= 2,
+      title: const Text('Sync everything', style: TextStyle(fontWeight: FontWeight.w700)),
+      content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Wakegraph reads your Anypoint contracts and scans every registered repo '
+            'for its Mule flows, property files and DataWeave lineage. First sync on a real org '
+            'is typically 1–2 minutes.'),
+        const SizedBox(height: 14),
+        if (!running && !done && !failed)
+          FilledButton.icon(
+            onPressed: _canSync && !_busy ? _startSync : null,
+            icon: const Icon(Icons.sync, size: 18),
+            label: const Text('Sync everything'),
+          ),
+        if (running) ...[
+          LinearProgressIndicator(
+            value: (p!.reposTotal == 0) ? null : p.reposDone / p.reposTotal,
+            minHeight: 6,
+          ),
+          const SizedBox(height: 8),
+          Text('${p.phase ?? "Running…"}   '
+              '${p.reposTotal == 0 ? "" : "${p.reposDone}/${p.reposTotal} repos"}',
+              style: Theme.of(context).textTheme.bodySmall),
+        ],
+        if (done)
+          const Row(children: [
+            Icon(Icons.check_circle, color: AppColors.additive),
+            SizedBox(width: 8),
+            Text('Sync complete. Loading your estate…'),
+          ]),
+        if (failed)
+          Row(children: [
+            const Icon(Icons.error_outline, color: AppColors.breaking),
+            const SizedBox(width: 8),
+            Expanded(child: Text(p?.error ?? 'Sync failed.',
+                style: const TextStyle(color: AppColors.breaking))),
+          ]),
+      ]),
     );
   }
 }

@@ -39,8 +39,8 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
   }
 
   Future<void> _pickApi() async {
-    final id = await showGlobalSearch(context, widget.api);
-    if (id != null && mounted) setState(() => _api = id);
+    final sel = await showGlobalSearch(context, widget.api);
+    if (sel != null && mounted) setState(() => _api = sel.api);
   }
 
   @override
@@ -59,10 +59,16 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
           ]),
           Expanded(
             child: _api == null
-                ? const EmptyState(
+                ? EmptyState(
                     icon: Icons.search,
                     title: 'Pick an API to inspect',
-                    message: 'Use “Change API” above or the search palette (Ctrl/Cmd-K) to choose one.')
+                    message: 'Use “Change API” above or the search palette (Ctrl/Cmd-K) to choose one.',
+                    action: FilledButton.icon(
+                      onPressed: _pickApi,
+                      icon: const Icon(Icons.search, size: 18),
+                      label: const Text('Choose an API'),
+                    ),
+                  )
                 : TabBarView(children: [
                     _EndpointsTab(api: widget.api, apiId: _api!, open: widget.open),
                     _ChangeImpactTab(api: widget.api, apiId: _api!),
@@ -89,6 +95,8 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
                 style: Theme.of(context).textTheme.bodySmall),
           ]),
         ),
+        if (_api != null) _AnypointLinksButton(api: widget.api, apiId: _api!),
+        const SizedBox(width: 8),
         OutlinedButton.icon(
           onPressed: _pickApi,
           icon: const Icon(Icons.search, size: 16),
@@ -97,6 +105,81 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
       ]),
     );
   }
+}
+
+class _AnypointLinksButton extends StatefulWidget {
+  final ApiClient api;
+  final String apiId;
+  const _AnypointLinksButton({required this.api, required this.apiId});
+
+  @override
+  State<_AnypointLinksButton> createState() => _AnypointLinksButtonState();
+}
+
+class _AnypointLinksButtonState extends State<_AnypointLinksButton> {
+  Future<AnypointLinks>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.api.anypointLinks(api: widget.apiId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnypointLinksButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.apiId != widget.apiId) {
+      _future = widget.api.anypointLinks(api: widget.apiId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<AnypointLinks>(
+      future: _future,
+      builder: (context, snap) {
+        final links = snap.data;
+        if (links == null || links.isEmpty) return const SizedBox.shrink();
+        return PopupMenuButton<String>(
+          tooltip: 'Open in Anypoint',
+          onSelected: openExternal,
+          itemBuilder: (_) => [
+            if (links.exchange != null)
+              PopupMenuItem(value: links.exchange!, child: const _AnypointRow(
+                  icon: Icons.storefront_outlined, label: 'Exchange')),
+            if (links.apiManager != null)
+              PopupMenuItem(value: links.apiManager!, child: const _AnypointRow(
+                  icon: Icons.admin_panel_settings_outlined, label: 'API Manager')),
+            if (links.designCenter != null)
+              PopupMenuItem(value: links.designCenter!, child: const _AnypointRow(
+                  icon: Icons.design_services_outlined, label: 'Design Center')),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.open_in_new, size: 16),
+              SizedBox(width: 6),
+              Text('Anypoint ▾'),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AnypointRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _AnypointRow({required this.icon, required this.label});
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 16), const SizedBox(width: 8), Text(label),
+      ]);
 }
 
 class _EndpointsTab extends StatefulWidget {
@@ -757,7 +840,18 @@ class _HistoryTabState extends State<_HistoryTab> {
         future: _changes,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator());
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Shimmer(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SkeletonBox(width: 220, height: 14),
+                  SizedBox(height: 10),
+                  SkeletonBox(height: 10),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 300, height: 10),
+                ]),
+              ),
+            );
           }
           if (snap.hasError) return _InlineError(error: snap.error!, onRetry: _reload);
           final changes = snap.data ?? [];
@@ -779,7 +873,18 @@ class _HistoryTabState extends State<_HistoryTab> {
         future: _changelog,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator());
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Shimmer(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SkeletonBox(width: 220, height: 14),
+                  SizedBox(height: 10),
+                  SkeletonBox(height: 10),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 300, height: 10),
+                ]),
+              ),
+            );
           }
           if (snap.hasError) return _InlineError(error: snap.error!, onRetry: _reload);
           final entries = snap.data ?? [];

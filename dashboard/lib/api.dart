@@ -81,6 +81,11 @@ class ApiClient {
     return (r as List).map((e) => ManifestDto.fromJson(e)).toList();
   }
 
+  Future<SearchResults> search(String q) async {
+    final r = await _get('/api/search?q=${Uri.encodeQueryComponent(q)}');
+    return SearchResults.fromJson(r);
+  }
+
   Future<List<InsightFinding>> insights() async {
     final r = await _get('/api/insights');
     return (r as List).map((e) => InsightFinding.fromJson(e)).toList();
@@ -123,7 +128,7 @@ class ApiClient {
     try {
       return SourcesStatus.fromJson(await _get('/api/sources'));
     } catch (_) {
-      return SourcesStatus(false, null, null, const []);
+      return SourcesStatus(false, null, null, null, const []);
     }
   }
 
@@ -170,7 +175,7 @@ class ApiClient {
     try {
       return AnypointStatus.fromJson(await _get('/api/anypoint/status'));
     } catch (_) {
-      return AnypointStatus(false, null, null);
+      return AnypointStatus(false, null, null, null);
     }
   }
 
@@ -191,6 +196,16 @@ class ApiClient {
 
   Future<void> anypointDisconnect() async {
     await _post('/api/anypoint/disconnect', {});
+  }
+
+  Future<AnypointLinks> anypointLinks({String? api}) async {
+    try {
+      final q = api == null ? '' : '?api=${Uri.encodeQueryComponent(api)}';
+      final r = await _get('/api/anypoint/links$q');
+      return AnypointLinks.fromJson(r);
+    } catch (_) {
+      return const AnypointLinks(null, null, null);
+    }
   }
 
   Future<AnypointSync> anypointSync() async {
@@ -251,11 +266,12 @@ class ApiInfo {
 class HealthInfo {
   final String status, name, version;
   final int uptimeSeconds;
-  HealthInfo(this.status, this.name, this.version, this.uptimeSeconds);
+  final bool authRequired;
+  HealthInfo(this.status, this.name, this.version, this.uptimeSeconds, this.authRequired);
   bool get up => status == 'UP';
   factory HealthInfo.fromJson(Map<String, dynamic> j) => HealthInfo(
       j['status'] ?? 'UNKNOWN', j['name'] ?? 'Wakegraph', j['version'] ?? '',
-      j['uptimeSeconds'] ?? 0);
+      j['uptimeSeconds'] ?? 0, j['authRequired'] == true);
 }
 
 class ChangeDto {
@@ -460,13 +476,16 @@ class MuleEndpoint {
 class MuleScanApp {
   final String app;
   final String? groupId, version;
-  final List<String> downstreamApis;
+  final List<String> downstreamApis, declaredApis, undeclaredApis;
   final List<MuleEndpoint> endpoints;
-  MuleScanApp(this.app, this.groupId, this.version, this.downstreamApis, this.endpoints);
+  MuleScanApp(this.app, this.groupId, this.version, this.downstreamApis, this.endpoints,
+      this.declaredApis, this.undeclaredApis);
   factory MuleScanApp.fromJson(Map<String, dynamic> j) => MuleScanApp(
       j['app'] ?? '?', j['groupId'], j['version'],
       (j['downstreamApis'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      (j['endpoints'] as List?)?.map((e) => MuleEndpoint.fromJson(e)).toList() ?? []);
+      (j['endpoints'] as List?)?.map((e) => MuleEndpoint.fromJson(e)).toList() ?? [],
+      (j['declaredApis'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      (j['undeclaredApis'] as List?)?.map((e) => e.toString()).toList() ?? const []);
 }
 
 class ScanResult {
@@ -531,11 +550,13 @@ class ExtractedSpec {
 
 class SourcesStatus {
   final bool anypointConfigured;
-  final String? anypointOrg, anypointEnv;
+  final String? anypointOrg, anypointEnv, anypointBaseUrl;
   final List<String> repos;
-  SourcesStatus(this.anypointConfigured, this.anypointOrg, this.anypointEnv, this.repos);
+  SourcesStatus(this.anypointConfigured, this.anypointOrg, this.anypointEnv,
+      this.anypointBaseUrl, this.repos);
   factory SourcesStatus.fromJson(Map<String, dynamic> j) => SourcesStatus(
       j['anypointConfigured'] == true, j['anypointOrg'], j['anypointEnv'],
+      j['anypointBaseUrl'],
       (j['repos'] as List?)?.map((e) => e.toString()).toList() ?? const []);
 }
 
@@ -562,6 +583,38 @@ class SyncAllResult {
       j['anypoint'] == null ? null : AnypointSync.fromJson(j['anypoint']),
       (j['repos'] as List?)?.map((e) => RepoResult.fromJson(e)).toList() ?? const [],
       j['totalApps'] ?? 0, j['note']);
+}
+
+class SearchApiHit {
+  final String api;
+  const SearchApiHit(this.api);
+  factory SearchApiHit.fromJson(Map<String, dynamic> j) => SearchApiHit(j['api'] ?? '');
+}
+
+class SearchEndpointHit {
+  final String api, endpoint;
+  const SearchEndpointHit(this.api, this.endpoint);
+  factory SearchEndpointHit.fromJson(Map<String, dynamic> j) =>
+      SearchEndpointHit(j['api'] ?? '', j['endpoint'] ?? '');
+}
+
+class SearchFieldHit {
+  final String api, endpoint, field;
+  const SearchFieldHit(this.api, this.endpoint, this.field);
+  factory SearchFieldHit.fromJson(Map<String, dynamic> j) =>
+      SearchFieldHit(j['api'] ?? '', j['endpoint'] ?? '', j['field'] ?? '');
+}
+
+class SearchResults {
+  final List<SearchApiHit> apis;
+  final List<SearchEndpointHit> endpoints;
+  final List<SearchFieldHit> fields;
+  const SearchResults(this.apis, this.endpoints, this.fields);
+  bool get isEmpty => apis.isEmpty && endpoints.isEmpty && fields.isEmpty;
+  factory SearchResults.fromJson(Map<String, dynamic> j) => SearchResults(
+      (j['apis'] as List?)?.map((e) => SearchApiHit.fromJson(e)).toList() ?? const [],
+      (j['endpoints'] as List?)?.map((e) => SearchEndpointHit.fromJson(e)).toList() ?? const [],
+      (j['fields'] as List?)?.map((e) => SearchFieldHit.fromJson(e)).toList() ?? const []);
 }
 
 class InsightFinding {
@@ -606,10 +659,18 @@ class SyncProgress {
 
 class AnypointStatus {
   final bool configured;
-  final String? orgId, environment;
-  AnypointStatus(this.configured, this.orgId, this.environment);
+  final String? orgId, environment, baseUrl;
+  AnypointStatus(this.configured, this.orgId, this.environment, this.baseUrl);
   factory AnypointStatus.fromJson(Map<String, dynamic> j) =>
-      AnypointStatus(j['configured'] == true, j['orgId'], j['environment']);
+      AnypointStatus(j['configured'] == true, j['orgId'], j['environment'], j['baseUrl']);
+}
+
+class AnypointLinks {
+  final String? exchange, apiManager, designCenter;
+  const AnypointLinks(this.exchange, this.apiManager, this.designCenter);
+  bool get isEmpty => exchange == null && apiManager == null && designCenter == null;
+  factory AnypointLinks.fromJson(Map<String, dynamic> j) =>
+      AnypointLinks(j['exchange'], j['apiManager'], j['designCenter']);
 }
 
 class AnypointSync {

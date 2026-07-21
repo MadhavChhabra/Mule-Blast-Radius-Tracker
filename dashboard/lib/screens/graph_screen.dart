@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../main.dart';
 import '../theme.dart';
+import '../util/file_upload.dart' as web_util;
 import '../widgets.dart';
 
 class GraphScreen extends StatefulWidget {
@@ -98,6 +99,31 @@ class _GraphScreenState extends State<GraphScreen> {
                 ),
               ),
             ],
+            const SizedBox(width: 12),
+            PopupMenuButton<String>(
+              tooltip: 'Export the estate map',
+              onSelected: (path) => web_util.openDownload('$apiBase$path'),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: '/api/graph/export.svg?download=true',
+                    child: Text('Estate map (SVG)')),
+                PopupMenuItem(value: '/api/graph/export.csv?kind=nodes&download=true',
+                    child: Text('Nodes (CSV)')),
+                PopupMenuItem(value: '/api/graph/export.csv?kind=edges&download=true',
+                    child: Text('Edges (CSV)')),
+              ],
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Theme.of(context).colorScheme.outline),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.file_download_outlined, size: 16),
+                  SizedBox(width: 6),
+                  Text('Export ▾'),
+                ]),
+              ),
+            ),
             const SizedBox(width: 16),
             const _Legend(),
           ]),
@@ -107,10 +133,17 @@ class _GraphScreenState extends State<GraphScreen> {
             future: _future!,
             builder: (context, graph) {
               if (graph.nodes.isEmpty) {
-                return const EmptyState(
+                return EmptyState(
                   icon: Icons.hub_outlined,
                   title: 'No estate map yet',
                   message: 'Add a repo or connect Anypoint in Sources, then Sync everything to build the map.',
+                  action: widget.open == null
+                      ? null
+                      : FilledButton.icon(
+                          onPressed: () => widget.open!(Tabs.sources),
+                          icon: const Icon(Icons.cable_outlined, size: 18),
+                          label: const Text('Go to Sources'),
+                        ),
                 );
               }
               final connectedIds = _connectedIds(graph);
@@ -304,11 +337,20 @@ class _LayeredMapState extends State<_LayeredMap> {
 
   final _vCtrl = ScrollController();
   final _hCtrl = ScrollController();
+  Size _viewport = Size.zero;
+  int _cullTick = 0;
 
   @override
   void initState() {
     super.initState();
     _recompute();
+    _vCtrl.addListener(_onScroll);
+    _hCtrl.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    setState(() => _cullTick++);
   }
 
   @override
@@ -322,9 +364,24 @@ class _LayeredMapState extends State<_LayeredMap> {
 
   @override
   void dispose() {
+    _vCtrl.removeListener(_onScroll);
+    _hCtrl.removeListener(_onScroll);
     _vCtrl.dispose();
     _hCtrl.dispose();
     super.dispose();
+  }
+
+  Rect _visibleRect() {
+    if (_viewport == Size.zero) {
+      return Rect.fromLTWH(0, 0, _totalW, _totalH);
+    }
+    final vx = _hCtrl.hasClients ? _hCtrl.offset : 0.0;
+    final vy = _vCtrl.hasClients ? _vCtrl.offset : 0.0;
+    final vw = _viewport.width / _scale;
+    final vh = _viewport.height / _scale;
+    const margin = _LayeredMap.cardW;
+    return Rect.fromLTWH(vx / _scale - margin, vy / _scale - margin,
+        vw + margin * 2, vh + margin * 2);
   }
 
   void _recompute() {
@@ -390,9 +447,14 @@ class _LayeredMapState extends State<_LayeredMap> {
         ]),
       ));
     }
+    final visRect = _visibleRect();
     for (final n in _visible) {
       final p = _pos[n.id];
       if (p == null) continue;
+      final cardRect = Rect.fromLTWH(p.dx, p.dy, _LayeredMap.cardW, _LayeredMap.cardH);
+      if (!cardRect.overlaps(visRect)) {
+        continue;
+      }
       final dim = (selected != null && !connected.contains(n.id)) || !matches(n);
       children.add(Positioned(
         left: p.dx,
@@ -418,13 +480,15 @@ class _LayeredMapState extends State<_LayeredMap> {
       height: _totalH,
       child: Stack(children: [
         Positioned.fill(
-          child: CustomPaint(
-            painter: _EdgePainter(
-              edges: widget.graph.edges,
-              pos: _pos,
-              selected: selected,
-              overlay: widget.overlay,
-              dimColor: Theme.of(context).colorScheme.outlineVariant,
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: _EdgePainter(
+                edges: widget.graph.edges,
+                pos: _pos,
+                selected: selected,
+                overlay: widget.overlay,
+                dimColor: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
           ),
         ),
@@ -436,32 +500,40 @@ class _LayeredMapState extends State<_LayeredMap> {
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Stack(children: [
 
-        Scrollbar(
-          controller: _vCtrl,
-          thumbVisibility: true,
-          child: SingleChildScrollView(
+        LayoutBuilder(builder: (context, constraints) {
+          final size = Size(constraints.maxWidth, constraints.maxHeight);
+          if (size != _viewport) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _viewport = size);
+            });
+          }
+          return Scrollbar(
             controller: _vCtrl,
-            scrollDirection: Axis.vertical,
-            child: Scrollbar(
-              controller: _hCtrl,
-              thumbVisibility: true,
-              notificationPredicate: (n) => n.depth == 1,
-              child: SingleChildScrollView(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _vCtrl,
+              scrollDirection: Axis.vertical,
+              child: Scrollbar(
                 controller: _hCtrl,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: math.max(_totalW * _scale, 400),
-                  height: math.max(_totalH * _scale, 300),
-                  child: Transform.scale(
-                    scale: _scale,
-                    alignment: Alignment.topLeft,
-                    child: canvas,
+                thumbVisibility: true,
+                notificationPredicate: (n) => n.depth == 1,
+                child: SingleChildScrollView(
+                  controller: _hCtrl,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: math.max(_totalW * _scale, 400),
+                    height: math.max(_totalH * _scale, 300),
+                    child: Transform.scale(
+                      scale: _scale,
+                      alignment: Alignment.topLeft,
+                      child: canvas,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        }),
         Positioned(right: 16, bottom: 16, child: _ZoomControls(
           scale: _scale,
           onZoom: (d) => setState(() => _scale = (_scale + d).clamp(0.3, 2.0)),

@@ -27,6 +27,10 @@ void openDownload(String url) {
   html.AnchorElement(href: url).click();
 }
 
+void openExternal(String url) {
+  html.window.open(url, '_blank');
+}
+
 String readLocationHash() => html.window.location.hash;
 
 void writeLocationHash(String hash) {

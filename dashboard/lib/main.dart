@@ -187,7 +187,9 @@ class _HomeShellState extends State<HomeShell> {
     _searchOpen = true;
     try {
       final result = await showGlobalSearch(context, api);
-      if (result != null) _open(Tabs.apiHub, api: result);
+      if (result != null) {
+        _open(Tabs.apiHub, api: result.api, endpoint: result.endpoint, field: result.field);
+      }
     } finally {
       _searchOpen = false;
     }
