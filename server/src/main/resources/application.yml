@@ -25,6 +25,17 @@ apiguard:
   # or scan a repo.
   seed:
     enabled: ${SEED_DEMO:false}
+  # AES-GCM key used by CredentialCipher for at-rest encryption of any credential
+  # persisted server-side (Anypoint client-secret when apiguard.anypoint.persist is turned on,
+  # future OAuth tokens, etc). Leave blank to disable encryption; any code path that needs to
+  # persist a secret will refuse to run until this is set. Rotate by re-encrypting all stored
+  # values.
+  security:
+    encryption-key: ${APIGUARD_ENCRYPTION_KEY:}
+  # Structured JSON logs — activate the `json` Spring profile (spring.profiles.active=json)
+  # and Wakegraph emits Logstash-formatted lines suitable for a log aggregator.
+  logging:
+    json: false
   # GitHub integration — leave blank to disable (the app then only logs what it would do).
   github:
     token: ${GITHUB_TOKEN:}
@@ -50,4 +61,11 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: apiguard

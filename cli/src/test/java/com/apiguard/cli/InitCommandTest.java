@@ -55,8 +55,10 @@ class InitCommandTest {
         assertTrue(Files.exists(pipe));
         String body = Files.readString(pipe);
         assertTrue(body.contains("pipelines:"), body);
-        assertTrue(body.contains("\"$JAR\" impact"), body);
+        assertTrue(body.contains("java -jar wakegraph.jar impact"), body);
         assertTrue(body.contains("--api orders-exp-api"), body);
+        assertTrue(body.contains("BITBUCKET_PR_DESTINATION_BRANCH"), body);
+        assertTrue(body.contains("WAKEGRAPH_API_KEY"), body);
     }
 
     @Test

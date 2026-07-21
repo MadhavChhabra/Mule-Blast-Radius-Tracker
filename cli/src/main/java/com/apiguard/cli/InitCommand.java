@@ -162,26 +162,28 @@ public final class InitCommand implements Callable<Integer> {
     private String bitbucketPipeline() {
         return "" +
                 "# Wakegraph impact — runs on every PR touching " + specPath + "\n" +
+                "# Repository variables required (Repository settings → Repository variables):\n" +
+                "#   WAKEGRAPH_SERVER   = " + server + "\n" +
+                "#   WAKEGRAPH_API_KEY  = <secret, matches server's apiguard.security.api-key>\n" +
                 "image: eclipse-temurin:17\n" +
                 "pipelines:\n" +
                 "  pull-requests:\n" +
                 "    '**':\n" +
                 "      - step:\n" +
                 "          name: Wakegraph impact\n" +
+                "          clone:\n" +
+                "            depth: full\n" +
                 "          script:\n" +
-                "            - test -f cli/build/libs/apiguard.jar || (curl -sSL -o wakegraph.jar\n" +
-                "                https://github.com/MadhavChhabra/Mule-Blast-Radius-Tracker/releases/latest/download/apiguard.jar)\n" +
-                "            - JAR=${JAR:-wakegraph.jar}\n" +
-                "            - java -jar \"$JAR\" impact " + specPath
-                + " --base origin/" + baseBranch + " --api " + apiName + "\n"
-                + "                --server \"$WAKEGRAPH_SERVER\" --markdown wakegraph-report.md\n" +
+                "            - curl -sSL -o wakegraph.jar https://github.com/MadhavChhabra/Mule-Blast-Radius-Tracker/releases/latest/download/apiguard.jar\n" +
+                "            - BASE=\"origin/${BITBUCKET_PR_DESTINATION_BRANCH:-" + baseBranch + "}\"\n" +
+                "            - git fetch --no-tags --depth=100 origin \"${BITBUCKET_PR_DESTINATION_BRANCH:-" + baseBranch + "}\"\n" +
+                "            - export APIGUARD_API_KEY=\"$WAKEGRAPH_API_KEY\"\n" +
+                "            - java -jar wakegraph.jar impact " + specPath + " \\\n" +
+                "                --api " + apiName + " --base \"$BASE\" \\\n" +
+                "                --server \"$WAKEGRAPH_SERVER\" \\\n" +
+                "                --markdown wakegraph-report.md \\\n" +
                 "                --fail-on breaking-impact\n" +
                 "          artifacts:\n" +
-                "            - wakegraph-report.md\n" +
-                "definitions:\n" +
-                "  # Configure repository variables:\n" +
-                "  #   WAKEGRAPH_SERVER  = " + server + "\n" +
-                "  #   APIGUARD_API_KEY  = <secret from " + apiKeySecret + ">\n" +
-                "  services: {}\n";
+                "            - wakegraph-report.md\n";
     }
 }
