@@ -56,6 +56,37 @@ class _ImpactCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(c.description ?? c.kind),
+            if (breaking && c.remediation != null && c.remediation!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.additive.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.additive.withOpacity(0.30)),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.health_and_safety_outlined, size: 16, color: AppColors.additive),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: Theme.of(context).textTheme.bodySmall,
+                        children: [
+                          const TextSpan(
+                              text: 'Ship it safely  ',
+                              style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.additive)),
+                          TextSpan(
+                              text: c.remediation!,
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
             if (impact.downstream.isNotEmpty) ...[
               const SizedBox(height: 10),
               Row(children: [

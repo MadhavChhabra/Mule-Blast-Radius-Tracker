@@ -71,11 +71,6 @@ class ApiClient {
     return EndpointInspect.fromJson(await _get(path));
   }
 
-  Future<ApiSurface> catalog(String api) async {
-    final r = await _get('/api/catalog?api=${Uri.encodeQueryComponent(api)}');
-    return ApiSurface.fromJson(r);
-  }
-
   Future<List<ManifestDto>> manifests() async {
     final r = await _get('/api/manifests');
     return (r as List).map((e) => ManifestDto.fromJson(e)).toList();
@@ -91,13 +86,12 @@ class ApiClient {
     return (r as List).map((e) => InsightFinding.fromJson(e)).toList();
   }
 
-  Future<HealthInfo> health() async => HealthInfo.fromJson(await _get('/api/health'));
-
-  Future<ScanResult> scan(String path) async {
-    final r = await _post('/api/scan', {'path': path});
-    invalidateGraph();
-    return ScanResult.fromJson(r);
+  Future<List<AuditEvent>> audit({int limit = 50}) async {
+    final r = await _get('/api/audit?limit=$limit');
+    return (r as List).map((e) => AuditEvent.fromJson(e)).toList();
   }
+
+  Future<HealthInfo> health() async => HealthInfo.fromJson(await _get('/api/health'));
 
   Future<AnalyzeResult> analyze({
     required String api,
@@ -122,6 +116,17 @@ class ApiClient {
   Future<PropagationResult> propagate({required String api, required String spec}) async {
     final r = await _post('/api/propagation', {'api': api, 'spec': spec});
     return PropagationResult.fromJson(r);
+  }
+
+  Future<LatestSpec?> latestSpec(String api) async {
+    final resp = await _http.get(
+        Uri.parse('$apiBase/api/apis/${Uri.encodeComponent(api)}/spec/latest'),
+        headers: _headers());
+    if (resp.statusCode == 204 || resp.statusCode >= 400) return null;
+    final j = jsonDecode(utf8.decode(resp.bodyBytes));
+    final spec = (j['spec'] ?? '').toString();
+    if (spec.trim().isEmpty) return null;
+    return LatestSpec(j['versionLabel'], j['savedAt'], spec);
   }
 
   Future<SourcesStatus> sourcesStatus() async {
@@ -171,33 +176,6 @@ class ApiClient {
   Future<SyncProgress> cancelSync() async =>
       SyncProgress.fromJson(await _post('/api/sources/sync/cancel', {}));
 
-  Future<AnypointStatus> anypointStatus() async {
-    try {
-      return AnypointStatus.fromJson(await _get('/api/anypoint/status'));
-    } catch (_) {
-      return AnypointStatus(false, null, null, null);
-    }
-  }
-
-  Future<AnypointStatus> anypointConfigure({
-    required String clientId,
-    required String clientSecret,
-    String? orgId,
-    String? environment,
-  }) async {
-    final r = await _post('/api/anypoint/config', {
-      'clientId': clientId,
-      'clientSecret': clientSecret,
-      if (orgId != null && orgId.isNotEmpty) 'orgId': orgId,
-      if (environment != null && environment.isNotEmpty) 'environment': environment,
-    });
-    return AnypointStatus.fromJson(r);
-  }
-
-  Future<void> anypointDisconnect() async {
-    await _post('/api/anypoint/disconnect', {});
-  }
-
   Future<AnypointLinks> anypointLinks({String? api}) async {
     try {
       final q = api == null ? '' : '?api=${Uri.encodeQueryComponent(api)}';
@@ -206,12 +184,6 @@ class ApiClient {
     } catch (_) {
       return const AnypointLinks(null, null, null);
     }
-  }
-
-  Future<AnypointSync> anypointSync() async {
-    final r = await _post('/api/anypoint/sync', {});
-    invalidateGraph();
-    return AnypointSync.fromJson(r);
   }
 
   Future<ExtractedSpec> extractSpecFromZip(List<int> bytes, String filename) async {
@@ -276,12 +248,12 @@ class HealthInfo {
 
 class ChangeDto {
   final String classification, kind;
-  final String? endpoint, jsonPointer, field, description;
+  final String? endpoint, jsonPointer, field, description, remediation;
   ChangeDto(this.classification, this.kind, this.endpoint, this.jsonPointer,
-      this.field, this.description);
+      this.field, this.description, this.remediation);
   factory ChangeDto.fromJson(Map<String, dynamic> j) => ChangeDto(
       j['classification'], j['kind'], j['endpoint'], j['jsonPointer'],
-      j['field'], j['description']);
+      j['field'], j['description'], j['remediation']);
 }
 
 class ConsumerDto {
@@ -379,23 +351,6 @@ class PropagationResult {
       (j['items'] as List?)?.map((e) => PropagationField.fromJson(e)).toList() ?? []);
 }
 
-class EndpointSurface {
-  final String path;
-  final List<String> fields;
-  EndpointSurface(this.path, this.fields);
-  factory EndpointSurface.fromJson(Map<String, dynamic> j) => EndpointSurface(
-      j['path'] ?? '', (j['fields'] as List?)?.map((e) => e.toString()).toList() ?? const []);
-}
-
-class ApiSurface {
-  final String api;
-  final List<EndpointSurface> endpoints;
-  ApiSurface(this.api, this.endpoints);
-  factory ApiSurface.fromJson(Map<String, dynamic> j) => ApiSurface(
-      j['api'] ?? '',
-      (j['endpoints'] as List?)?.map((e) => EndpointSurface.fromJson(e)).toList() ?? const []);
-}
-
 class GraphNode {
   final String id, label, layer;
   final bool api;
@@ -446,55 +401,18 @@ class EdgeDto {
 
 class ManifestDto {
   final String consumer;
-  final String? ownerTeam, slackChannel, sourceRepo;
+  final String? ownerTeam, slackChannel, sourceRepo, updatedAt;
   final List<String> reviewers;
   final List<EdgeDto> edges;
+  final bool discoveredOnly;
   ManifestDto(this.consumer, this.ownerTeam, this.reviewers, this.slackChannel,
-      this.sourceRepo, this.edges);
+      this.sourceRepo, this.edges, this.updatedAt, this.discoveredOnly);
   factory ManifestDto.fromJson(Map<String, dynamic> j) => ManifestDto(
       j['consumer'], j['ownerTeam'],
       (j['reviewers'] as List?)?.map((e) => e.toString()).toList() ?? [],
       j['slackChannel'], j['sourceRepo'],
-      (j['edges'] as List?)?.map((e) => EdgeDto.fromJson(e)).toList() ?? []);
-}
-
-class MuleCall {
-  final String api, endpoint;
-  MuleCall(this.api, this.endpoint);
-  factory MuleCall.fromJson(Map<String, dynamic> j) => MuleCall(j['api'] ?? '?', j['endpoint'] ?? '');
-}
-
-class MuleEndpoint {
-  final String endpoint;
-  final List<MuleCall> calls;
-  MuleEndpoint(this.endpoint, this.calls);
-  factory MuleEndpoint.fromJson(Map<String, dynamic> j) => MuleEndpoint(
-      j['endpoint'] ?? '',
-      (j['calls'] as List?)?.map((e) => MuleCall.fromJson(e)).toList() ?? []);
-}
-
-class MuleScanApp {
-  final String app;
-  final String? groupId, version;
-  final List<String> downstreamApis, declaredApis, undeclaredApis;
-  final List<MuleEndpoint> endpoints;
-  MuleScanApp(this.app, this.groupId, this.version, this.downstreamApis, this.endpoints,
-      this.declaredApis, this.undeclaredApis);
-  factory MuleScanApp.fromJson(Map<String, dynamic> j) => MuleScanApp(
-      j['app'] ?? '?', j['groupId'], j['version'],
-      (j['downstreamApis'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      (j['endpoints'] as List?)?.map((e) => MuleEndpoint.fromJson(e)).toList() ?? [],
-      (j['declaredApis'] as List?)?.map((e) => e.toString()).toList() ?? const [],
-      (j['undeclaredApis'] as List?)?.map((e) => e.toString()).toList() ?? const []);
-}
-
-class ScanResult {
-  final int apps;
-  final List<MuleScanApp> scans;
-  ScanResult(this.apps, this.scans);
-  factory ScanResult.fromJson(Map<String, dynamic> j) => ScanResult(
-      j['apps'] ?? 0,
-      (j['scans'] as List?)?.map((e) => MuleScanApp.fromJson(e)).toList() ?? []);
+      (j['edges'] as List?)?.map((e) => EdgeDto.fromJson(e)).toList() ?? [],
+      j['updatedAt'], j['discoveredOnly'] == true);
 }
 
 class Summary {
@@ -546,6 +464,12 @@ class ExtractedSpec {
   final String? title, version;
   final String spec;
   ExtractedSpec(this.title, this.version, this.spec);
+}
+
+class LatestSpec {
+  final String? versionLabel, savedAt;
+  final String spec;
+  LatestSpec(this.versionLabel, this.savedAt, this.spec);
 }
 
 class SourcesStatus {
@@ -629,6 +553,15 @@ class InsightFinding {
       (j['apis'] as List?)?.map((e) => e.toString()).toList() ?? const []);
 }
 
+class AuditEvent {
+  final int? id;
+  final String? ts, actor, subject, detail;
+  final String action;
+  AuditEvent(this.id, this.ts, this.actor, this.action, this.subject, this.detail);
+  factory AuditEvent.fromJson(Map<String, dynamic> j) => AuditEvent(
+      j['id'], j['ts'], j['actor'], j['action'] ?? '', j['subject'], j['detail']);
+}
+
 class SyncProgress {
   final String state;
   final String? phase;
@@ -655,14 +588,6 @@ class SyncProgress {
       j['result'] == null ? null : SyncAllResult.fromJson(j['result']),
       j['error'],
       j['startedAt'] ?? 0);
-}
-
-class AnypointStatus {
-  final bool configured;
-  final String? orgId, environment, baseUrl;
-  AnypointStatus(this.configured, this.orgId, this.environment, this.baseUrl);
-  factory AnypointStatus.fromJson(Map<String, dynamic> j) =>
-      AnypointStatus(j['configured'] == true, j['orgId'], j['environment'], j['baseUrl']);
 }
 
 class AnypointLinks {

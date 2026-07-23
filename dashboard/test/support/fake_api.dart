@@ -61,6 +61,17 @@ http.Client fakeApiClient({Set<String> failPaths = const {}, bool emptyGraph = f
         body = '[]';
       } else if (p == '/api/catalog') {
         body = '{"api":"orders-exp-api","endpoints":[]}';
+      } else if (p == '/api/search') {
+        body = '{"apis":[{"api":"orders-exp-api"}],'
+            '"endpoints":[{"api":"orders-exp-api","endpoint":"GET /orders"}],'
+            '"fields":[{"api":"orders-exp-api","endpoint":"GET /orders","field":"total"}]}';
+      } else if (p == '/api/manifests') {
+        body = '[]';
+      } else if (p == '/api/audit') {
+        body = '[{"id":2,"ts":"2026-07-22T10:00:00Z","actor":"api-key:ab…yz",'
+            '"action":"sources.sync","subject":null,"detail":"synchronous"},'
+            '{"id":1,"ts":"2026-07-22T09:59:00Z","actor":"anon@127.0.0.1",'
+            '"action":"sources.repo.add","subject":"https://github.com/acme/orders","detail":null}]';
       } else {
         body = '{}';
       }

@@ -7,7 +7,9 @@ network (Exchange + API Manager + Bitbucket/GitHub repo flows) — and documents
 Three features on one pipeline (the semantic diff):
 
 1. **Breaking-Change Detector** — diffs old vs new OpenAPI and classifies every change
-   `BREAKING` / `SAFE` / `ADDITIVE`. No AI, no heuristics — explicit, testable rules.
+   `BREAKING` / `SAFE` / `ADDITIVE`. No AI, no heuristics — explicit, testable rules. Every
+   breaking change comes with a **"Ship it safely"** fix: the concrete, backward-compatible way
+   to make the same change (deprecate-then-remove, add-optional-with-default, version the endpoint).
 2. **Blast-Radius Reviewer** — maps changed endpoints/fields to impacted consumers and owners,
    **field-level and bidirectional** (downstream consumers *and* upstream sources), from
    declarative manifests. Auto-requests the right cross-team reviewers and Slack-notifies.
@@ -193,14 +195,21 @@ manifest coverage — but the detector + changelog need none, so you get value o
 
 ## Dashboard
 
-Four views over the REST API (Flutter Web):
+Five surfaces over the REST API (Flutter Web):
 
-- **Changes & risk** — summary metrics (pie + stat tiles) and the classified change list.
-- **Blast radius** — interactive dependency graph (`graphview`); edges coloured by risk
-  (red = a breaking change flows along it). Click a node for a detail panel.
-- **Dependency Explorer** — pre-change scoping: pick `api → endpoint → field`, see downstream
-  consumers + upstream sources with owners/reviewers/Slack, exportable to a scope-of-work doc.
+- **Home** — estate health at a glance (layer counts, breaking edges, most depended-on APIs) plus
+  governance findings. First run walks you through connecting a source.
+- **Sources** — connect your Anypoint org and add Bitbucket/GitHub repos (or a whole org), then
+  **Sync everything** in one click.
+- **Estate map** — the API-led dependency network (apps → experience → process → system → systems
+  of record); edges coloured by risk. Click any node to open it.
+- **API hub** — everything about one API in four tabs: **Endpoints** (what each calls and who
+  calls it), **Change impact** (*Who reads a field* and *Check a change* — the latter shows what
+  breaks, how to **ship it safely**, the version bump, risk, who's affected, and a changelog),
+  **Consumers & blast radius**, and **Spec & history**.
 - **Changelog** — the auto-generated Markdown history.
+
+Press **Ctrl/Cmd-K** anywhere to jump to any API, endpoint, or field.
 
 ---
 

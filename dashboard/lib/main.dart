@@ -12,6 +12,7 @@ import 'screens/changelog_screen.dart';
 import 'theme.dart';
 import 'util/file_upload.dart' as web_util;
 import 'widgets/global_search.dart';
+import 'widgets/shortcuts_help.dart';
 
 void main() => runApp(const ApiGuardApp());
 
@@ -72,10 +73,15 @@ class _HomeShellState extends State<HomeShell> {
   bool _searchOpen = false;
 
   bool _handleKey(KeyEvent event) {
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.keyK &&
-        (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
+    if (event is! KeyDownEvent) return false;
+    final ctrlOrCmd = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (event.logicalKey == LogicalKeyboardKey.keyK && ctrlOrCmd) {
       if (!_searchOpen) _search();
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.slash && ctrlOrCmd) {
+      showShortcutsHelp(context);
       return true;
     }
     return false;
@@ -251,7 +257,19 @@ class _HomeShellState extends State<HomeShell> {
                         alignment: Alignment.bottomCenter,
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: _ServerStatus(api: api),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () => showShortcutsHelp(context),
+                                icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                                tooltip: 'Keyboard shortcuts (Ctrl/Cmd-/)',
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              const SizedBox(height: 8),
+                              _ServerStatus(api: api),
+                            ],
+                          ),
                         ),
                       ),
                     ),

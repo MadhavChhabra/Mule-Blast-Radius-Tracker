@@ -10,6 +10,7 @@ import '../widgets.dart';
 import '../widgets/global_search.dart';
 import '../widgets/impact_list.dart';
 import '../widgets/skeleton.dart';
+import '../widgets/spec_diff.dart';
 
 class ApiHubScreen extends StatefulWidget {
   final ApiClient api;
@@ -378,6 +379,31 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
   Future<AnalyzeResult>? _analysis;
   bool _busy = false;
   bool _onlyImpacted = true;
+  LatestSpec? _latest;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLatest();
+  }
+
+  Future<void> _loadLatest() async {
+    try {
+      final l = await widget.api.latestSpec(widget.apiId);
+      if (mounted) setState(() => _latest = l);
+    } catch (_) {}
+  }
+
+  String get _baselineLabel {
+    final l = _latest;
+    if (l == null) return '';
+    final date = (l.savedAt != null && l.savedAt!.length >= 10) ? l.savedAt!.substring(0, 10) : '';
+    final parts = [
+      if (l.versionLabel != null && l.versionLabel!.isNotEmpty) l.versionLabel!,
+      if (date.isNotEmpty) date,
+    ];
+    return parts.isEmpty ? 'last recorded version' : parts.join(' · ');
+  }
 
   void _run() {
     if (_spec.text.trim().isEmpty) return;
@@ -388,31 +414,41 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
     _result!.whenComplete(() => setState(() => _busy = false));
   }
 
-  Future<void> _pickFile() async {
+  Future<void> _loadFileInto(TextEditingController c) async {
     final t = await pickTextFile();
-    if (t != null) setState(() => _spec.text = t);
+    if (t != null && mounted) setState(() => c.text = t);
   }
 
-  Future<void> _pickZip() async {
+  Future<void> _loadZipInto(TextEditingController c) async {
     final picked = await pickBinaryFile();
     if (picked == null) return;
     setState(() => _busy = true);
     try {
       final ex = await widget.api.extractSpecFromZip(picked.bytes, picked.name);
-      if (mounted) {
-        setState(() => _spec.text = ex.spec);
-      }
+      if (mounted) setState(() => c.text = ex.spec);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Zip: ${e.toString().replaceFirst('Exception: ', '')}')));
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _busy = false);
     }
   }
+
+  void _loadBaselineInto(TextEditingController c) {
+    final l = _latest;
+    if (l != null) setState(() => c.text = l.spec);
+  }
+
+  Widget _loaderBtn(IconData icon, String tip, VoidCallback? onTap) => IconButton(
+        onPressed: onTap,
+        icon: Icon(icon, size: 16),
+        tooltip: tip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 30),
+      );
 
   void _analyze() {
     if (_oldSpec.text.trim().isEmpty || _newSpec.text.trim().isEmpty) return;
@@ -428,8 +464,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
     return ListView(padding: const EdgeInsets.all(24), children: [
       SegmentedButton<int>(
         segments: const [
-          ButtonSegment(value: 0, icon: Icon(Icons.account_tree_outlined, size: 16), label: Text('Field impact')),
-          ButtonSegment(value: 1, icon: Icon(Icons.difference_outlined, size: 16), label: Text('Version diff')),
+          ButtonSegment(value: 0, icon: Icon(Icons.account_tree_outlined, size: 16), label: Text('Who reads a field')),
+          ButtonSegment(value: 1, icon: Icon(Icons.difference_outlined, size: 16), label: Text('Check a change')),
         ],
         selected: {_mode},
         onSelectionChanged: (s) => setState(() => _mode = s.first),
@@ -440,10 +476,11 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
   }
 
   List<Widget> _propagationBody(BuildContext context) => [
-        Text('Paste this API\'s RAML/OpenAPI to see which field changes must be carried forward.',
+        Text('Paste this API\'s spec (RAML or OpenAPI) to see which fields other apps read — '
+            'so before you touch a field, you know who feels it.',
             style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 8),
-        Row(children: [
+        Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           FilledButton.icon(
             onPressed: _busy ? null : _run,
             icon: _busy
@@ -451,16 +488,18 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                 : const Icon(Icons.travel_explore),
             label: const Text('Scan fields'),
           ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(onPressed: _busy ? null : _pickZip,
+          if (_latest != null)
+            OutlinedButton.icon(onPressed: _busy ? null : () => _loadBaselineInto(_spec),
+                icon: const Icon(Icons.history, size: 16),
+                label: Text('Load recorded ($_baselineLabel)')),
+          OutlinedButton.icon(onPressed: _busy ? null : () => _loadZipInto(_spec),
               icon: const Icon(Icons.folder_zip_outlined, size: 16), label: const Text('RAML zip')),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(onPressed: _busy ? null : _pickFile,
+          OutlinedButton.icon(onPressed: _busy ? null : () => _loadFileInto(_spec),
               icon: const Icon(Icons.upload_file, size: 16), label: const Text('File')),
         ]),
         const SizedBox(height: 8),
         SizedBox(
-          height: 120,
+          height: 180,
           child: TextField(
             controller: _spec,
             maxLines: null,
@@ -468,7 +507,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
             textAlignVertical: TextAlignVertical.top,
             style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true,
-                hintText: 'Paste RAML (#%RAML 1.0 …) or OpenAPI, or load a Design Center / Exchange asset'),
+                hintText: 'Paste RAML (#%RAML 1.0 …) or OpenAPI, load a file/zip, or use the recorded version'),
           ),
         ),
         const SizedBox(height: 12),
@@ -478,8 +517,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
       ];
 
   List<Widget> _versionDiffBody(BuildContext context) => [
-        Text('Paste the before + after of this API\'s spec to detect breaking changes, the recommended '
-            'version bump, deployment risk, impacted consumers and a generated changelog.',
+        Text('Paste the before and after of this API\'s spec. You\'ll get: what breaks, how to ship it '
+            'safely, the version bump to use, the deployment risk, who\'s affected, and a ready changelog.',
             style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -491,7 +530,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ),
         const SizedBox(height: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: _specBox('Before (baseline)', _oldSpec)),
+          Expanded(child: _specBox('Before (baseline)', _oldSpec, baseline: true)),
           const SizedBox(width: 12),
           Expanded(child: _specBox('After (your change)', _newSpec)),
         ]),
@@ -501,13 +540,20 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
               future: _analysis!, onRetry: _analyze, builder: (context, r) => _diff(context, r)),
       ];
 
-  Widget _specBox(String label, TextEditingController c) => Column(
+  Widget _specBox(String label, TextEditingController c, {bool baseline = false}) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          Row(children: [
+            Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+            if (baseline && _latest != null)
+              _loaderBtn(Icons.history, 'Load recorded version ($_baselineLabel)',
+                  _busy ? null : () => _loadBaselineInto(c)),
+            _loaderBtn(Icons.folder_zip_outlined, 'Load a RAML zip', _busy ? null : () => _loadZipInto(c)),
+            _loaderBtn(Icons.upload_file, 'Load a spec file', _busy ? null : () => _loadFileInto(c)),
+          ]),
           const SizedBox(height: 4),
           SizedBox(
-            height: 140,
+            height: 200,
             child: TextField(
               controller: c,
               maxLines: null,
@@ -515,7 +561,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
               textAlignVertical: TextAlignVertical.top,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
               decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true,
-                  hintText: 'Paste RAML or OpenAPI'),
+                  hintText: 'Paste RAML or OpenAPI, or use the icons above'),
             ),
           ),
         ],
@@ -555,6 +601,23 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ),
       const SizedBox(height: 12),
       ImpactList(r.impacts),
+      const SizedBox(height: 12),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+            childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            leading: const Icon(Icons.difference_outlined, size: 20),
+            title: const Text('Spec diff', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text('See exactly what changed, line by line',
+                style: Theme.of(context).textTheme.bodySmall),
+            children: [
+              SpecDiffView(oldText: _oldSpec.text, newText: _newSpec.text),
+            ],
+          ),
+        ),
+      ),
       const SizedBox(height: 12),
       Card(
         child: Padding(
@@ -608,8 +671,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ),
         child: Text(
           risky
-              ? '${r.impactedFields} of ${r.fields} fields would need carry-forward across ${r.impactedConsumers} consumer(s).'
-              : 'None of the ${r.fields} fields have a known downstream consumer.',
+              ? '${r.impactedFields} of ${r.fields} fields are read by ${r.impactedConsumers} other app(s) — changing those ripples out.'
+              : 'None of the ${r.fields} fields are read by another app we know about — safe to change.',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
@@ -630,7 +693,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                 Text(f.endpoint, style: TextStyle(fontSize: 12,
                     color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ]),
-              trailing: Text(f.consumerCount > 0 ? '${f.consumerCount} to carry' : 'safe',
+              trailing: Text(f.consumerCount > 0 ? '${f.consumerCount} read it' : 'safe',
                   style: TextStyle(color: f.consumerCount > 0 ? AppColors.breaking : AppColors.additive,
                       fontWeight: FontWeight.w700, fontSize: 12)),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -653,7 +716,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: _plan(r.api, f)));
                         ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Carry-forward plan copied')));
+                            const SnackBar(content: Text('Heads-up plan copied')));
                       },
                       icon: const Icon(Icons.checklist_rtl, size: 16),
                       label: const Text('Copy plan'),
@@ -666,7 +729,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
   }
 
   String _plan(String api, PropagationField f) {
-    final b = StringBuffer('Carry-forward — $api ${f.endpoint} · field "${f.field}"\n');
+    final b = StringBuffer('Before changing "${f.field}" — $api ${f.endpoint}\n'
+        'These apps read it, so give them a heads-up:\n');
     for (final c in f.downstream) {
       b.writeln('  [ ] ${c.consumer} — update to handle "${f.field}" '
           '(${[if (c.ownerTeam != null) 'team=${c.ownerTeam}', if (c.reviewers.isNotEmpty) 'reviewers=${c.reviewers.join(',')}'].join(' ')})');
@@ -684,9 +748,23 @@ class _ConsumersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AsyncView<GraphDto>(
-      future: graph,
-      builder: (context, g) {
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([graph, api.manifests()]),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Padding(padding: EdgeInsets.all(24), child: SkeletonList(rows: 3));
+        }
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(snap.error.toString().replaceFirst('Exception: ', '')),
+          );
+        }
+        final g = snap.data![0] as GraphDto;
+        final manifests = snap.data![1] as List<ManifestDto>;
+        final byConsumer = <String, ManifestDto>{
+          for (final m in manifests) m.consumer.toLowerCase(): m,
+        };
         final consumers = g.edges.where((e) => e.to == apiId).toList();
         final deps = g.edges.where((e) => e.from == apiId).toList();
         final breaking = consumers.where((e) => e.risk == 'breaking').length;
@@ -707,11 +785,12 @@ class _ConsumersTab extends StatelessWidget {
           _GovernanceCard(api: api, apiId: apiId),
           _section(context, 'Consumed by (blast radius)', consumers.length),
           if (consumers.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('No known consumers.')),
-          ...consumers.map((e) => _edgeTile(context, e.from, e.risk, e.via)),
+          ...consumers.map((e) => _edgeTile(context, e.from, e.risk, e.via,
+              byConsumer[e.from.toLowerCase()])),
           const SizedBox(height: 16),
           _section(context, 'Depends on', deps.length),
           if (deps.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('No known dependencies.')),
-          ...deps.map((e) => _edgeTile(context, e.to, e.risk, e.via)),
+          ...deps.map((e) => _edgeTile(context, e.to, e.risk, e.via, null)),
         ]);
       },
     );
@@ -722,7 +801,8 @@ class _ConsumersTab extends StatelessWidget {
         child: Text('$t  ($n)', style: const TextStyle(fontWeight: FontWeight.w800)),
       );
 
-  Widget _edgeTile(BuildContext context, String name, String risk, List<String> via) => Card(
+  Widget _edgeTile(BuildContext context, String name, String risk, List<String> via,
+      ManifestDto? manifest) => Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: InkWell(
           onTap: () => open?.call(Tabs.apiHub, api: name),
@@ -735,15 +815,51 @@ class _ConsumersTab extends StatelessWidget {
                     color: AppColors.forRisk(risk), shape: BoxShape.circle)),
                 const SizedBox(width: 8),
                 Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
-                if (risk == 'breaking') const Text('breaking', style: TextStyle(fontSize: 11, color: AppColors.breaking)),
+                if (risk == 'breaking') const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Text('breaking', style: TextStyle(fontSize: 11, color: AppColors.breaking))),
                 const Icon(Icons.chevron_right, size: 16),
               ]),
+              if (manifest != null) _readinessChips(context, manifest),
               ...via.map((v) => Padding(padding: const EdgeInsets.only(left: 16, top: 2),
                   child: Text(v, style: TextStyle(fontSize: 12, fontFamily: 'monospace',
                       color: Theme.of(context).colorScheme.onSurfaceVariant)))),
             ]),
           ),
         ),
+      );
+
+  Widget _readinessChips(BuildContext context, ManifestDto m) {
+    final chips = <Widget>[];
+    if (m.discoveredOnly) {
+      chips.add(_chip(context, Icons.travel_explore, 'discovered — no manifest committed',
+          AppColors.warning));
+    } else if (m.ownerTeam != null && m.ownerTeam!.isNotEmpty) {
+      chips.add(_chip(context, Icons.groups_outlined, 'team ${m.ownerTeam}', AppColors.additive));
+    }
+    if (m.updatedAt != null && m.updatedAt!.isNotEmpty) {
+      final day = m.updatedAt!.length >= 10 ? m.updatedAt!.substring(0, 10) : m.updatedAt!;
+      chips.add(_chip(context, Icons.schedule_outlined, 'last seen $day', AppColors.neutral));
+    }
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, left: 16),
+      child: Wrap(spacing: 6, runSpacing: 4, children: chips),
+    );
+  }
+
+  Widget _chip(BuildContext context, IconData icon, String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.10),
+          border: Border.all(color: color.withOpacity(0.35)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+        ]),
       );
 }
 

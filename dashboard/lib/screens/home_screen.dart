@@ -573,11 +573,11 @@ class _EstateHealth extends StatelessWidget {
               Text('Your estate is empty', style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
-              const Text('Scan a Mule repo or connect Anypoint to build the map.'),
+              const Text('Add a Mule repo or connect Anypoint, then Sync — that builds the map.'),
               const SizedBox(height: 12),
               Row(children: [
-                FilledButton.icon(onPressed: () => open(Tabs.discover),
-                    icon: const Icon(Icons.travel_explore, size: 18), label: const Text('Discover')),
+                FilledButton.icon(onPressed: () => open(Tabs.sources),
+                    icon: const Icon(Icons.cable_outlined, size: 18), label: const Text('Connect a source')),
               ]),
             ]),
           ));

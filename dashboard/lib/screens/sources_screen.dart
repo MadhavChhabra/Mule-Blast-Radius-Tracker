@@ -192,6 +192,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
                   _resultsCard(context,
                       SyncAllResult(false, null, _progress!.repoResults, 0, null)),
                 ],
+                const SizedBox(height: 16),
+                _AuditCard(api: widget.api),
               ],
             ),
           ),
@@ -510,6 +512,132 @@ class _AnypointDialogState extends State<_AnypointDialog> {
               : const Text('Connect'),
         ),
       ],
+    );
+  }
+}
+
+/// A collapsible "Recent activity" panel that reads the server's audit log
+/// (who connected Anypoint, added a repo, ran a sync, ran an analyze). Kept
+/// on the Sources screen because that is where most audited actions originate.
+class _AuditCard extends StatefulWidget {
+  final ApiClient api;
+  const _AuditCard({required this.api});
+
+  @override
+  State<_AuditCard> createState() => _AuditCardState();
+}
+
+class _AuditCardState extends State<_AuditCard> {
+  Future<List<AuditEvent>>? _events;
+
+  void _load() {
+    setState(() {
+      _events = widget.api.audit(limit: 25);
+    });
+  }
+
+  static (IconData, Color) _style(String action) {
+    if (action.startsWith('anypoint')) return (Icons.cable_outlined, AppColors.additive);
+    if (action.startsWith('sources.sync')) return (Icons.sync, AppColors.experience);
+    if (action.startsWith('sources.repo')) return (Icons.source_outlined, AppColors.process);
+    if (action == 'analyze') return (Icons.difference_outlined, AppColors.safe);
+    return (Icons.bolt_outlined, AppColors.neutral);
+  }
+
+  static String _relative(String? iso) {
+    if (iso == null) return '';
+    final t = DateTime.tryParse(iso);
+    if (t == null) return iso;
+    final d = DateTime.now().toUtc().difference(t.toUtc());
+    if (d.inSeconds < 60) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ExpansionTile(
+        onExpansionChanged: (open) { if (open && _events == null) _load(); },
+        leading: const Icon(Icons.receipt_long_outlined, size: 20),
+        title: const Text('Recent activity', style: TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text('Audit log — who changed sources and ran analyses',
+            style: Theme.of(context).textTheme.bodySmall),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Refresh'),
+            ),
+          ),
+          FutureBuilder<List<AuditEvent>>(
+            future: _events,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: SizedBox(
+                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+                );
+              }
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(snap.error.toString().replaceFirst('Exception: ', ''),
+                      style: const TextStyle(fontSize: 12)),
+                );
+              }
+              final events = snap.data ?? const <AuditEvent>[];
+              if (events.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Text('No recorded activity yet.', style: TextStyle(fontSize: 13)),
+                );
+              }
+              return Column(
+                children: events.map((e) {
+                  final (icon, color) = _style(e.action);
+                  final detail = [
+                    if (e.subject != null && e.subject!.isNotEmpty) e.subject!,
+                    if (e.detail != null && e.detail!.isNotEmpty) e.detail!,
+                  ].join(' · ');
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Icon(icon, size: 16, color: color),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Expanded(child: Text(e.action,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                            Text(_relative(e.ts),
+                                style: Theme.of(context).textTheme.bodySmall),
+                          ]),
+                          if (detail.isNotEmpty)
+                            Text(detail, style: TextStyle(fontSize: 11,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          if (e.actor != null && e.actor!.isNotEmpty)
+                            Text(e.actor!, style: TextStyle(fontSize: 10.5,
+                                fontFamily: 'monospace',
+                                color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8))),
+                        ]),
+                      ),
+                    ]),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
