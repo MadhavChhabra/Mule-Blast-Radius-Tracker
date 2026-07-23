@@ -45,6 +45,10 @@ final class ImpactReport {
                     ? "" : c.path("endpoint").asText() + "  ")
                     + c.path("description").asText();
             out.println(isBreaking ? ansi.red("✖ " + head) : ansi.yellow("• " + head));
+            String remediation = c.path("remediation").asText("");
+            if (isBreaking && !remediation.isEmpty()) {
+                out.println(ansi.dim("    → ship it safely: " + remediation));
+            }
             String verb = isBreaking ? "breaks " : "reaches ";
             for (JsonNode d : impact.path("downstream")) {
                 String readiness = readinessSuffix(d);
@@ -110,6 +114,10 @@ final class ImpactReport {
             }
             breaking.append(c.path("description").asText());
             breaking.append('\n');
+            String remediation = c.path("remediation").asText("");
+            if (!remediation.isEmpty()) {
+                breaking.append("  - _Ship it safely:_ ").append(remediation).append('\n');
+            }
             for (JsonNode d : impact.path("downstream")) {
                 breaking.append("  - 💥 breaks **").append(d.path("consumer").asText()).append("**")
                         .append(teamSuffix(d));

@@ -94,4 +94,8 @@ public class ChangeRecordEntity {
     public String getField() {
         return field;
     }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

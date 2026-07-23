@@ -4,6 +4,8 @@ import com.apiguard.core.blast.DependencyManifest;
 import com.apiguard.server.domain.ApiEntity;
 import com.apiguard.server.repo.ApiRepository;
 import com.apiguard.server.service.ManifestService;
+import com.apiguard.server.service.SpecArchiveService;
+import com.apiguard.server.service.SpecStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -28,17 +30,26 @@ public class AnypointSyncService {
     private final ManifestService manifestService;
     private final ApiRepository apis;
     private final AnypointCredentials creds;
+    private final SpecStore specStore;
+    private final SpecArchiveService specArchive;
     private final int maxDependencyLookups;
+    private final int maxSpecDownloads;
 
     public AnypointSyncService(AnypointClient client, ManifestService manifestService,
                                ApiRepository apis, AnypointCredentials creds,
+                               SpecStore specStore, SpecArchiveService specArchive,
                                @org.springframework.beans.factory.annotation.Value(
-                                       "${apiguard.anypoint.max-dependency-lookups:0}") int maxDependencyLookups) {
+                                       "${apiguard.anypoint.max-dependency-lookups:0}") int maxDependencyLookups,
+                               @org.springframework.beans.factory.annotation.Value(
+                                       "${apiguard.anypoint.max-spec-downloads:100}") int maxSpecDownloads) {
         this.client = client;
         this.manifestService = manifestService;
         this.apis = apis;
         this.creds = creds;
+        this.specStore = specStore;
+        this.specArchive = specArchive;
         this.maxDependencyLookups = maxDependencyLookups;
+        this.maxSpecDownloads = maxSpecDownloads;
     }
 
     public record SyncResult(String orgId, String environmentId, String environmentName,
@@ -122,6 +133,8 @@ public class AnypointSyncService {
             }
         }
 
+        captureSpecs(assets);
+
         if (maxDependencyLookups <= 0) {
             return assets.size();
         }
@@ -167,6 +180,76 @@ public class AnypointSyncService {
     }
 
     private record AssetCoord(String assetId, String groupId, String version) {
+    }
+
+    private record CapturedSpec(String api, String version, String yaml) {
+    }
+
+    private void captureSpecs(List<Map<String, Object>> assets) {
+        if (maxSpecDownloads <= 0) {
+            return;
+        }
+        List<AssetCoord> todo = new ArrayList<>();
+        for (Map<String, Object> a : assets) {
+            String assetId = AnypointClient.str(a.get("assetId"));
+            String groupId = AnypointClient.str(a.get("groupId"));
+            String version = AnypointClient.str(a.get("version"));
+            if (assetId == null || groupId == null || version == null) {
+                continue;
+            }
+            if (specStore.hasVersionLabel(assetId, version)) {
+                continue;
+            }
+            todo.add(new AssetCoord(assetId, groupId, version));
+            if (todo.size() >= maxSpecDownloads) {
+                break;
+            }
+        }
+        if (todo.isEmpty()) {
+            return;
+        }
+        List<CapturedSpec> captured = inParallel(todo, c -> {
+            try {
+                AnypointClient.AssetFile pick = pickSpecFile(client.assetFiles(c.groupId(), c.assetId(), c.version()));
+                if (pick == null) {
+                    return null;
+                }
+                byte[] bytes = client.downloadSpec(pick.externalLink());
+                if (bytes == null) {
+                    return null;
+                }
+                return new CapturedSpec(c.assetId(), c.version(), specArchive.fromBytes(bytes).spec());
+            } catch (RuntimeException ex) {
+                return null;
+            }
+        });
+        int stored = 0;
+        for (CapturedSpec cs : captured) {
+            if (cs != null) {
+                try {
+                    specStore.store(cs.api(), "exchange", cs.version(), cs.yaml());
+                    stored++;
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+        if (stored > 0) {
+            log.info("Anypoint sync captured {} API spec(s) from Exchange", stored);
+        }
+    }
+
+    public static AnypointClient.AssetFile pickSpecFile(List<AnypointClient.AssetFile> files) {
+        if (files == null) {
+            return null;
+        }
+        for (String classifier : List.of("fat-raml", "oas", "raml")) {
+            for (AnypointClient.AssetFile f : files) {
+                if (classifier.equalsIgnoreCase(f.classifier()) && notBlank(f.externalLink())) {
+                    return f;
+                }
+            }
+        }
+        return null;
     }
 
     private int[] apiManagerGraph(String orgId, String envId, String envName, Map<String, Consumer> consumers) {

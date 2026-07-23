@@ -87,23 +87,6 @@ public class ManifestService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, java.util.LinkedHashSet<String>> apiSurface(String apiName) {
-        Map<String, java.util.LinkedHashSet<String>> byEndpoint = new LinkedHashMap<>();
-        for (DependencyManifestEntity m : manifests.findAll()) {
-            for (DependencyEdgeEntity e : m.getEdges()) {
-                if (e.getApiName() != null && e.getApiName().equalsIgnoreCase(apiName)) {
-                    String ep = e.getEndpoint() == null ? "*" : e.getEndpoint();
-                    java.util.LinkedHashSet<String> fields =
-                            byEndpoint.computeIfAbsent(ep, k -> new java.util.LinkedHashSet<>());
-                    if (e.getField() != null) {
-                        fields.add(e.getField());
-                    }
-                }
-            }
-        }
-        return byEndpoint;
-    }
-
     private static DependencyManifest toCore(DependencyManifestEntity e) {
         DependencyManifest m = new DependencyManifest();
         m.consumer = e.getConsumer();

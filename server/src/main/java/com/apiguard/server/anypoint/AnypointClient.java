@@ -215,6 +215,39 @@ public class AnypointClient {
         return deps;
     }
 
+    public record AssetFile(String classifier, String packaging, String externalLink) {
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<AssetFile> assetFiles(String groupId, String assetId, String version) {
+        Map<String, Object> asset = get("/exchange/api/v2/assets/" + groupId + "/" + assetId + "/" + version, Map.class);
+        List<AssetFile> out = new ArrayList<>();
+        if (asset != null && asset.get("files") instanceof List<?> list) {
+            for (Object f : list) {
+                if (f instanceof Map<?, ?> fm) {
+                    out.add(new AssetFile(str(fm.get("classifier")), str(fm.get("packaging")),
+                            str(fm.get("externalLink"))));
+                }
+            }
+        }
+        return out;
+    }
+
+    public byte[] downloadSpec(String externalLink) {
+        if (externalLink == null || externalLink.isBlank()) {
+            return null;
+        }
+        try {
+            return withRetry(() -> http.get()
+                    .uri(java.net.URI.create(externalLink))
+                    .retrieve()
+                    .body(byte[].class));
+        } catch (RuntimeException ex) {
+            log.debug("Exchange spec download failed for {}: {}", externalLink, ex.getMessage());
+            return null;
+        }
+    }
+
     private <T> T get(String uri, Class<T> type) {
         return withRetry(() -> http.get().uri(uri).headers(this::auth).retrieve().body(type));
     }

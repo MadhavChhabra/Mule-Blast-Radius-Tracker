@@ -177,6 +177,15 @@ class MuleProjectScannerTest {
     }
 
     @Test
+    void capturesAndFlattensApiSpecFromApikitConfig() {
+        MuleScan scan = MuleProjectScanner.scan(sampleProject());
+        String spec = scan.apiSpec();
+        assertNotNull(spec, "expected the APIkit RAML to be captured during scan");
+        assertTrue(spec.contains("openapi:"), () -> "spec should be flattened to OpenAPI YAML:\n" + spec);
+        assertTrue(spec.contains("/orders/{orderId}"), () -> "spec should carry the API's paths:\n" + spec);
+    }
+
+    @Test
     void attachesOwnerMetadataFromOwnerFile() {
         MuleScan scan = MuleProjectScanner.scan(sampleProject());
         assertEquals("orders-experience", scan.owner().ownerTeam());

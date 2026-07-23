@@ -72,6 +72,13 @@ class WebApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].classification").value("BREAKING"));
 
+        mvc.perform(get("/api/apis/o-api/spec/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionLabel").value("v2"))
+                .andExpect(jsonPath("$.spec").value(org.hamcrest.Matchers.containsString("version: 2.0.0")));
+        mvc.perform(get("/api/apis/no-such-api/spec/latest"))
+                .andExpect(status().isNoContent());
+
         mvc.perform(get("/api/explorer").param("api", "o-api").param("endpoint", "GET /o/{id}").param("field", "customerId"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("web-x")));

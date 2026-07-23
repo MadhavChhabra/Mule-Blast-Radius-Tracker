@@ -16,12 +16,19 @@ public record MuleScan(
         List<InboundEndpoint> endpoints,
         List<String> declaredApis,
         List<OutboundCall> orphanCalls,
-        List<ConfigDriftWarning> configDrift) {
+        List<ConfigDriftWarning> configDrift,
+        String apiSpec) {
+
+    public MuleScan(String app, String groupId, String version, Owner owner,
+                    List<InboundEndpoint> endpoints, List<String> declaredApis,
+                    List<OutboundCall> orphanCalls, List<ConfigDriftWarning> configDrift) {
+        this(app, groupId, version, owner, endpoints, declaredApis, orphanCalls, configDrift, null);
+    }
 
     public MuleScan(String app, String groupId, String version, Owner owner,
                     List<InboundEndpoint> endpoints, List<String> declaredApis,
                     List<OutboundCall> orphanCalls) {
-        this(app, groupId, version, owner, endpoints, declaredApis, orphanCalls, List.of());
+        this(app, groupId, version, owner, endpoints, declaredApis, orphanCalls, List.of(), null);
     }
 
     public record ConfigDriftWarning(String configName, String host, String unresolvedPlaceholder) {

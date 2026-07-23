@@ -23,10 +23,10 @@ public final class DiffCommand implements Callable<Integer> {
     Path firstSpec;
 
     @Parameters(index = "1", paramLabel = "NEW", arity = "0..1",
-            description = "New spec path (omit when using --base).")
+            description = "New spec path (omit to compare the first spec against git history).")
     Path newSpecOpt;
 
-    @Option(names = "--base", description = "Git ref (e.g. main) to read the baseline spec from, instead of an OLD file.")
+    @Option(names = "--base", description = "Git ref (e.g. main) to read the baseline spec from. Defaults to main/master when NEW is omitted.")
     String baseRef;
 
     @Option(names = "--changelog", description = "Also print a categorized Markdown changelog.")
@@ -43,15 +43,18 @@ public final class DiffCommand implements Callable<Integer> {
         Ansi ansi = new Ansi(!noColor);
         OpenAPI oldApi;
         OpenAPI newApi;
+        if (newSpecOpt == null && baseRef == null) {
+            baseRef = GitSpec.resolveDefaultBase(firstSpec);
+            if (baseRef == null) {
+                System.err.println("Provide a NEW spec, or run inside a git repo (needs a main/master branch), or pass --base <ref>.");
+                return 2;
+            }
+            System.out.println(ansi.dim("Comparing working copy against " + baseRef));
+        }
         if (baseRef != null) {
-
             newApi = SpecLoader.loadFile(firstSpec);
             oldApi = SpecLoader.loadString(GitSpec.showAtRef(firstSpec, baseRef));
         } else {
-            if (newSpecOpt == null) {
-                System.err.println("Provide NEW spec, or use --base <ref>.");
-                return 2;
-            }
             oldApi = SpecLoader.loadFile(firstSpec);
             newApi = SpecLoader.loadFile(newSpecOpt);
         }

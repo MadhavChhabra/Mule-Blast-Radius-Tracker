@@ -3,6 +3,7 @@ package com.apiguard.cli;
 import com.apiguard.core.blast.BlastRadiusResolver;
 import com.apiguard.core.diff.Change;
 import com.apiguard.core.diff.Classification;
+import com.apiguard.core.diff.Remediation;
 
 import java.util.List;
 
@@ -18,6 +19,7 @@ final class CliOutput {
         }
         for (Change c : changes) {
             System.out.println(line(ansi, c));
+            printRemediation(ansi, c);
         }
         printSummary(ansi, changes);
     }
@@ -29,6 +31,7 @@ final class CliOutput {
         }
         for (BlastRadiusResolver.Impact impact : impacts) {
             System.out.println(line(ansi, impact.change()));
+            printRemediation(ansi, impact.change());
 
             List<BlastRadiusResolver.ConsumerImpact> down = impact.downstream();
             boolean breaking = impact.change().isBreaking();
@@ -69,6 +72,13 @@ final class CliOutput {
         }
         sb.append(ansi.dim("(" + (c.description() != null ? c.description() : c.kind().label()) + ")"));
         return sb.toString();
+    }
+
+    private static void printRemediation(Ansi ansi, Change c) {
+        String hint = Remediation.forChange(c);
+        if (hint != null) {
+            System.out.println("  " + ansi.dim("→ ship it safely: " + hint));
+        }
     }
 
     private static void printSummary(Ansi ansi, List<Change> changes) {

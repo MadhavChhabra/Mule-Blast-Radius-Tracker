@@ -83,6 +83,23 @@ class ImpactReportTest {
     }
 
     @Test
+    void markdownShowsRemediationWhenPresent() throws Exception {
+        JsonNode withRemediation = parse("""
+                {"api": "orders-api",
+                 "summary": {"total": 1, "breaking": 1, "safe": 0, "additive": 0, "impactedConsumers": 0},
+                 "advisory": {"recommendedBump": "MAJOR", "riskScore": 60, "riskLevel": "HIGH"},
+                 "impacts": [
+                   {"change": {"classification": "BREAKING", "kind": "RESPONSE_FIELD_REMOVED",
+                               "endpoint": "GET /orders/{id}", "field": "total",
+                               "description": "Response field 'total' removed",
+                               "remediation": "Keep returning the field, mark it deprecated in the spec."},
+                    "downstream": [], "upstream": []}
+                 ], "changelog": ""}""");
+        String md = ImpactReport.renderMarkdown(withRemediation);
+        assertTrue(md.contains("_Ship it safely:_ Keep returning the field"), md);
+    }
+
+    @Test
     void exitCodesFollowFailOnMode() throws Exception {
         JsonNode withImpact = parse(RESPONSE);
         assertEquals(1, ImpactReport.exitCode(withImpact, ImpactReport.FailOn.BREAKING_IMPACT));

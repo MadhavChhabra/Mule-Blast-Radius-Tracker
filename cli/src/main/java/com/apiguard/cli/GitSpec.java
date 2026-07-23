@@ -9,6 +9,19 @@ final class GitSpec {
     private GitSpec() {
     }
 
+    static String resolveDefaultBase(Path specPath) {
+        Path cwd = specPath.toAbsolutePath().normalize().getParent();
+        for (String ref : new String[]{"main", "master", "origin/main", "origin/master"}) {
+            if (runGitRaw(cwd, "rev-parse", "--verify", "--quiet", ref) != null) {
+                return ref;
+            }
+        }
+        if (runGitRaw(cwd, "rev-parse", "--verify", "--quiet", "HEAD") != null) {
+            return "HEAD";
+        }
+        return null;
+    }
+
     static String showAtRef(Path specPath, String baseRef) {
         Path abs = specPath.toAbsolutePath().normalize();
         String topLevel = runGitRaw(abs.getParent(), "rev-parse", "--show-toplevel");

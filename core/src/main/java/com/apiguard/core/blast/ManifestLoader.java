@@ -46,11 +46,16 @@ public final class ManifestLoader {
         try (Stream<Path> walk = Files.walk(root)) {
             walk.filter(Files::isRegularFile).forEach(p -> {
                 String name = p.getFileName().toString();
+                boolean dep = name.equals("apiguard-deps.yaml") || name.equals("apiguard-deps.yml");
+                boolean src = name.equals("apiguard-sources.yaml") || name.equals("apiguard-sources.yml");
+                if (!dep && !src) {
+                    return;
+                }
                 try {
                     String content = Files.readString(p, StandardCharsets.UTF_8);
-                    if (name.equals("apiguard-deps.yaml") || name.equals("apiguard-deps.yml")) {
+                    if (dep) {
                         consumers.add(loadDependency(content));
-                    } else if (name.equals("apiguard-sources.yaml") || name.equals("apiguard-sources.yml")) {
+                    } else {
                         sources.add(loadSources(content));
                     }
                 } catch (IOException e) {

@@ -4,6 +4,7 @@ import com.apiguard.core.blast.ManifestLoader;
 import com.apiguard.server.domain.DependencyEdgeEntity;
 import com.apiguard.server.domain.DependencyManifestEntity;
 import com.apiguard.server.service.ManifestService;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +36,7 @@ public class ManifestController {
     }
 
     @GetMapping
+    @Transactional(readOnly = true)
     public List<Dtos.ManifestDto> list() {
         return manifestService.all().stream().map(ManifestController::toDto).toList();
     }
@@ -43,7 +45,9 @@ public class ManifestController {
         List<Dtos.EdgeDto> edges = e.getEdges().stream()
                 .map((DependencyEdgeEntity ed) -> new Dtos.EdgeDto(ed.getApiName(), ed.getEndpoint(), ed.getField()))
                 .toList();
+        boolean discoveredOnly = e.getReviewers() == null || e.getReviewers().isEmpty();
+        String updatedAt = e.getUpdatedAt() == null ? null : e.getUpdatedAt().toString();
         return new Dtos.ManifestDto(e.getConsumer(), e.getOwnerTeam(), List.copyOf(e.getReviewers()),
-                e.getSlackChannel(), e.getSourceRepo(), edges);
+                e.getSlackChannel(), e.getSourceRepo(), edges, updatedAt, discoveredOnly);
     }
 }

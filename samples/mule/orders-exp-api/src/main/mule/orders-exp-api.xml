@@ -4,6 +4,9 @@
       xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
       xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit">
 
+    <!-- APIkit router: the API spec this app implements -->
+    <apikit:config name="orders-exp-api-config" api="api/orders-exp-api.raml"/>
+
     <!-- HTTP request configs pointing at downstream APIs -->
     <http:request-config name="orders-process-api-config">
         <http:request-connection host="orders-process-api.acme.internal" port="443" protocol="HTTPS"/>

@@ -3,6 +3,7 @@ package com.apiguard.server.web;
 import com.apiguard.core.blast.BlastRadiusResolver;
 import com.apiguard.core.diff.Change;
 import com.apiguard.core.diff.Classification;
+import com.apiguard.core.diff.Remediation;
 
 import java.util.List;
 
@@ -12,10 +13,10 @@ public final class Dtos {
     }
 
     public record ChangeDto(String classification, String kind, String endpoint,
-                            String jsonPointer, String field, String description) {
+                            String jsonPointer, String field, String description, String remediation) {
         public static ChangeDto from(Change c) {
             return new ChangeDto(c.classification().name(), c.kind().name(), c.endpoint(),
-                    c.jsonPointer(), c.field(), c.description());
+                    c.jsonPointer(), c.field(), c.description(), Remediation.forChange(c));
         }
     }
 
@@ -73,7 +74,8 @@ public final class Dtos {
     }
 
     public record ManifestDto(String consumer, String ownerTeam, List<String> reviewers,
-                              String slackChannel, String sourceRepo, List<EdgeDto> edges) {
+                              String slackChannel, String sourceRepo, List<EdgeDto> edges,
+                              String updatedAt, Boolean discoveredOnly) {
     }
 
     public record EdgeDto(String api, String endpoint, String field) {

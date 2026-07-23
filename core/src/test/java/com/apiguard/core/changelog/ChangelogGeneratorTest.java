@@ -27,7 +27,8 @@ class ChangelogGeneratorTest {
         assertTrue(md.contains("⚠️ Breaking Changes"), md);
         assertTrue(md.contains("### Added"), md);
         assertTrue(md.contains("customerId"), md);
-        assertTrue(md.contains("consumers reading this field"), "should include a migration hint\n" + md);
+        assertTrue(md.contains("Ship it safely:"), "should include remediation guidance\n" + md);
+        assertTrue(md.contains("new major version"), "remediation should name the safe path\n" + md);
         assertTrue(md.contains("3 changes, 1 breaking"), md);
     }
 

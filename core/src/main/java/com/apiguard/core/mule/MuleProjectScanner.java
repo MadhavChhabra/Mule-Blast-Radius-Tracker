@@ -1,5 +1,9 @@
 package com.apiguard.core.mule;
 
+import com.apiguard.core.spec.RamlLoader;
+import com.apiguard.core.spec.SpecLoader;
+import io.swagger.v3.core.util.Yaml;
+import io.swagger.v3.oas.models.OpenAPI;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -11,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,8 +109,99 @@ public final class MuleProjectScanner {
         }
 
         MuleScan.Owner owner = readOwner(projectDir);
+        String apiSpec = captureApiSpec(projectDir);
         return new MuleScan(pomInfo.artifactId(), pomInfo.groupId(), pomInfo.version(),
-                owner, endpoints, pomInfo.apis(), orphanCalls, configDrift);
+                owner, endpoints, pomInfo.apis(), orphanCalls, configDrift, apiSpec);
+    }
+
+    static String captureApiSpec(Path projectDir) {
+        try {
+            Path spec = findSpecFile(projectDir);
+            if (spec == null) {
+                return null;
+            }
+            String content = Files.readString(spec);
+            OpenAPI api = content.stripLeading().startsWith("#%RAML")
+                    ? RamlLoader.loadFile(spec)
+                    : SpecLoader.loadFile(spec);
+            if (api == null || api.getPaths() == null || api.getPaths().isEmpty()) {
+                return null;
+            }
+            return Yaml.pretty(api);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Path findSpecFile(Path projectDir) {
+        Path resources = projectDir.resolve("src/main/resources");
+        Path fromApikit = specFromApikit(projectDir, resources);
+        if (fromApikit != null) {
+            return fromApikit;
+        }
+        return findRootRaml(resources);
+    }
+
+    private static Path specFromApikit(Path projectDir, Path resources) {
+        Path muleDir = projectDir.resolve("src/main/mule");
+        if (!Files.isDirectory(muleDir)) {
+            return null;
+        }
+        try (Stream<Path> files = Files.walk(muleDir)) {
+            for (Path xml : files.filter(p -> p.toString().endsWith(".xml")).sorted().toList()) {
+                try {
+                    Document doc = builder().parse(xml.toFile());
+                    for (Element cfg : elementsByLocalName(doc.getDocumentElement(), "config")) {
+                        String prefix = cfg.getPrefix();
+                        String ns = cfg.getNamespaceURI();
+                        boolean apikit = (prefix != null && prefix.toLowerCase().contains("apikit"))
+                                || (ns != null && ns.contains("apikit"));
+                        if (!apikit) {
+                            continue;
+                        }
+                        String ref = firstNonBlank(cfg.getAttribute("api"),
+                                cfg.getAttribute("raml"), cfg.getAttribute("raml-uri"));
+                        if (ref == null || ref.startsWith("resource::")) {
+                            continue;
+                        }
+                        for (Path base : List.of(resources, projectDir)) {
+                            Path candidate = base.resolve(ref).normalize();
+                            if (Files.isRegularFile(candidate)) {
+                                return candidate;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (IOException ignored) {
+        }
+        return null;
+    }
+
+    private static Path findRootRaml(Path resources) {
+        if (!Files.isDirectory(resources)) {
+            return null;
+        }
+        try (Stream<Path> walk = Files.walk(resources)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".raml"))
+                    .min(Comparator.comparingInt(
+                                    (Path p) -> p.getFileName().toString().equalsIgnoreCase("api.raml") ? 0 : 1)
+                            .thenComparingInt(Path::getNameCount))
+                    .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
     }
 
     private static MuleScan.Owner readOwner(Path projectDir) {

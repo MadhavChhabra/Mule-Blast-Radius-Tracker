@@ -16,22 +16,23 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "check", mixinStandardHelpOptions = true,
-        description = "Diff two specs and report the blast radius (downstream consumers + upstream sources).")
+        description = "Diff two specs and report the blast radius (downstream consumers + upstream sources). "
+                + "With one spec and no --base, compares your working copy against main/master.")
 public final class CheckCommand implements Callable<Integer> {
 
     @Parameters(index = "0", paramLabel = "OLD_OR_NEW", arity = "1",
-            description = "Baseline spec path; or, with --base, the current spec to compare against git history.")
+            description = "Baseline spec path; or, with --base (or alone), the current spec to compare against git history.")
     Path firstSpec;
 
     @Parameters(index = "1", paramLabel = "NEW", arity = "0..1",
-            description = "New spec path (omit when using --base).")
+            description = "New spec path (omit to compare the first spec against git history).")
     Path newSpecOpt;
 
-    @Option(names = "--base", description = "Git ref (e.g. main) to read the baseline spec from, instead of an OLD file.")
+    @Option(names = "--base", description = "Git ref (e.g. main) to read the baseline spec from. Defaults to main/master when NEW is omitted.")
     String baseRef;
 
-    @Option(names = {"-a", "--api"}, required = true,
-            description = "Name of the API being changed (matches the 'api' key in dependency manifests).")
+    @Option(names = {"-a", "--api"},
+            description = "Name of the API being changed (matches the 'api' key in manifests). Inferred from the spec title if omitted.")
     String apiName;
 
     @Option(names = {"-m", "--manifests"}, description = "Directory to scan for apiguard-deps.yaml / apiguard-sources.yaml. Default: current dir.")
@@ -52,16 +53,25 @@ public final class CheckCommand implements Callable<Integer> {
 
         OpenAPI oldApi;
         OpenAPI newApi;
+        if (newSpecOpt == null && baseRef == null) {
+            baseRef = GitSpec.resolveDefaultBase(firstSpec);
+            if (baseRef == null) {
+                System.err.println("Provide a NEW spec, or run inside a git repo (needs a main/master branch), or pass --base <ref>.");
+                return 2;
+            }
+            System.out.println(ansi.dim("Comparing working copy against " + baseRef));
+        }
         if (baseRef != null) {
             newApi = SpecLoader.loadFile(firstSpec);
             oldApi = SpecLoader.loadString(GitSpec.showAtRef(firstSpec, baseRef));
         } else {
-            if (newSpecOpt == null) {
-                System.err.println("Provide NEW spec, or use --base <ref>.");
-                return 2;
-            }
             oldApi = SpecLoader.loadFile(firstSpec);
             newApi = SpecLoader.loadFile(newSpecOpt);
+        }
+
+        if (apiName == null || apiName.isBlank()) {
+            apiName = inferApiName(newApi, firstSpec);
+            System.out.println(ansi.dim("API name (inferred): " + apiName));
         }
         List<Change> changes = new DiffEngine().diff(oldApi, newApi).stream()
                 .sorted(Comparator.comparing((Change c) -> c.classification().ordinal())
@@ -125,5 +135,26 @@ public final class CheckCommand implements Callable<Integer> {
         }
         System.out.println(ansi.green("No breaking changes hit a known consumer."));
         return 0;
+    }
+
+    static String inferApiName(OpenAPI api, Path specPath) {
+        String title = api != null && api.getInfo() != null ? api.getInfo().getTitle() : null;
+        String slug = slug(title);
+        if (!slug.isBlank()) {
+            return slug;
+        }
+        String file = specPath.getFileName() == null ? "api" : specPath.getFileName().toString();
+        int dot = file.lastIndexOf('.');
+        slug = slug(dot > 0 ? file.substring(0, dot) : file);
+        return slug.isBlank() ? "api" : slug;
+    }
+
+    private static String slug(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
     }
 }

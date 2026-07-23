@@ -4,6 +4,7 @@ import com.apiguard.core.mule.MuleProjectScanner;
 import com.apiguard.core.mule.MuleScan;
 import com.apiguard.server.web.Dtos;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
 import java.util.List;
@@ -13,10 +14,12 @@ public class ScanService {
 
     private final ManifestService manifestService;
     private final RepoFetchService repoFetch;
+    private final SpecStore specStore;
 
-    public ScanService(ManifestService manifestService, RepoFetchService repoFetch) {
+    public ScanService(ManifestService manifestService, RepoFetchService repoFetch, SpecStore specStore) {
         this.manifestService = manifestService;
         this.repoFetch = repoFetch;
+        this.specStore = specStore;
     }
 
     public Dtos.ScanResultDto scan(String pathOrUrl) {
@@ -35,9 +38,11 @@ public class ScanService {
         }
     }
 
+    @Transactional
     public Dtos.ScanResultDto ingest(List<MuleScan> scans) {
         List<Dtos.MuleScanDto> dtos = scans.stream().map(scan -> {
             manifestService.ingestDependency(scan.toManifest());
+            storeSpec(scan);
             List<Dtos.MuleEndpointDto> endpoints = scan.endpoints().stream()
                     .map(ep -> new Dtos.MuleEndpointDto(ep.label(),
                             ep.calls().stream()
@@ -52,5 +57,11 @@ public class ScanService {
                     scan.declaredApis(), scan.undeclaredCalls(), drift);
         }).toList();
         return new Dtos.ScanResultDto(dtos.size(), dtos);
+    }
+
+    private void storeSpec(MuleScan scan) {
+        String repo = scan.owner() != null ? scan.owner().sourceRepo() : null;
+        String label = scan.version() != null && !scan.version().isBlank() ? scan.version() : "scanned";
+        specStore.store(scan.app(), repo, label, scan.apiSpec());
     }
 }

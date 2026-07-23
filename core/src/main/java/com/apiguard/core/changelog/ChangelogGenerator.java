@@ -3,6 +3,7 @@ package com.apiguard.core.changelog;
 import com.apiguard.core.diff.Change;
 import com.apiguard.core.diff.ChangeKind;
 import com.apiguard.core.diff.Classification;
+import com.apiguard.core.diff.Remediation;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -75,11 +76,9 @@ public final class ChangelogGenerator {
             sb.append("**`").append(change.endpoint()).append("`** — ");
         }
         sb.append(change.description() != null ? change.description() : change.kind().label());
-        if (change.isBreaking()) {
-            String migration = migrationHint(change);
-            if (migration != null) {
-                sb.append(" _(").append(migration).append(")_");
-            }
+        String remediation = Remediation.forChange(change);
+        if (remediation != null) {
+            sb.append("\n  - _Ship it safely:_ ").append(remediation);
         }
         return sb.toString();
     }
@@ -95,20 +94,6 @@ public final class ChangelogGenerator {
                  REQUEST_ENUM_VALUE_ADDED, RESPONSE_STATUS_ADDED -> Category.ADDED;
             case REQUEST_FIELD_REMOVED, PARAM_REMOVED, RESPONSE_ENUM_VALUE_REMOVED -> Category.REMOVED;
             default -> Category.CHANGED;
-        };
-    }
-
-    private static String migrationHint(Change change) {
-        return switch (change.kind()) {
-            case RESPONSE_FIELD_REMOVED -> "consumers reading this field must stop relying on it";
-            case ENDPOINT_REMOVED, OPERATION_REMOVED -> "migrate callers to the replacement operation";
-            case REQUEST_FIELD_ADDED_REQUIRED, PARAM_ADDED_REQUIRED, REQUEST_FIELD_MADE_REQUIRED, PARAM_MADE_REQUIRED ->
-                    "callers must now supply this value";
-            case FIELD_TYPE_CHANGED -> "update client models to the new type";
-            case REQUEST_ENUM_VALUE_REMOVED -> "callers sending the old value will be rejected";
-            case RESPONSE_ENUM_VALUE_ADDED -> "consumers must handle the new value";
-            case AUTH_TIGHTENED -> "callers must now authenticate";
-            default -> null;
         };
     }
 }

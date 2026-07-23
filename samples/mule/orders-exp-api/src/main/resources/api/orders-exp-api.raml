@@ -1,0 +1,40 @@
+#%RAML 1.0
+title: Orders Experience API
+version: v1
+mediaType: application/json
+/orders:
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            type: object
+            properties:
+              orders:
+                type: array
+  post:
+    body:
+      application/json:
+        type: object
+        properties:
+          customer: string
+    responses:
+      201:
+        body:
+          application/json:
+            type: object
+            properties:
+              id: string
+              customer: string
+              state: string
+  /{orderId}:
+    get:
+      responses:
+        200:
+          body:
+            application/json:
+              type: object
+              properties:
+                id: string
+                customer: string
+                state: string
