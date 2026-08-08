@@ -1,6 +1,6 @@
-# Deploying Blipradius for end users to test
+# Deploying BlipRadius for end users to test
 
-Blipradius ships as **one self-contained app**: the server also serves the dashboard, so a tester
+BlipRadius ships as **one self-contained app**: the server also serves the dashboard, so a tester
 opens a single URL and everything works. There are three ways to hand it to people, from
 easiest-for-the-tester to most-scalable.
 
@@ -22,7 +22,7 @@ That output is bundled into the server jar automatically, so one process serves 
 
 ## A. Windows desktop app (recommended for testers)
 
-Produces a portable folder with `Blipradius.exe` and a bundled Java runtime — **the tester needs
+Produces a portable folder with `BlipRadius.exe` and a bundled Java runtime — **the tester needs
 nothing installed**. They double-click, it opens the dashboard in their browser, and their estate +
 saved Anypoint connection persist under `~/.apiguard` across restarts.
 
@@ -35,8 +35,8 @@ cd dashboard && flutter build web --release && cd ..
 ./gradlew :server:desktopInstaller
 ```
 
-Zip the `server/build/desktop/Blipradius` folder and send it. **The tester:** unzip → run
-`Blipradius.exe` → the browser opens on the dashboard → the first-run wizard walks them through
+Zip the `server/build/desktop/BlipRadius` folder and send it. **The tester:** unzip → run
+`BlipRadius.exe` → the browser opens on the dashboard → the first-run wizard walks them through
 connecting Anypoint and/or a repo → **Sync everything**.
 
 What persists on their machine (no re-entry on the next launch):
@@ -53,7 +53,7 @@ both** the UI and the API on the same origin. Nothing else needs to be published
 cp deploy/.env.example deploy/.env
 # In deploy/.env set APIGUARD_API_KEY_SERVER and a stable APIGUARD_ENCRYPTION_KEY (see below).
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
-# Blipradius → http://localhost:8080
+# BlipRadius → http://localhost:8080
 ```
 
 Estate data lives in the `apiguard-pg` Postgres volume (survives restarts). For the **saved Anypoint
@@ -89,7 +89,7 @@ Good for a quick internal share; same persistence as the desktop app.
 
 - The Anypoint **client secret is never stored in plaintext.** It is encrypted with AES-GCM
   (`CredentialCipher`) before being written to the database, and it is never sent back to the browser.
-- **Desktop / jar:** if you don't set a key, Blipradius generates one and keeps it at
+- **Desktop / jar:** if you don't set a key, BlipRadius generates one and keeps it at
   `~/.apiguard/credential.key` (owner-only permissions on macOS/Linux). Zero setup — the connection is
   restored automatically on the next launch. Back up that file if you back up the data.
 - **Server / Docker:** set `APIGUARD_ENCRYPTION_KEY` yourself and keep it stable. If the key changes,

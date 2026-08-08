@@ -64,7 +64,7 @@ apiguard:
     # instead and back it up. Blank both to run without at-rest encryption (credentials then stay in memory).
     key-file: ${APIGUARD_KEY_FILE:${user.home}/.apiguard/credential.key}
   # Structured JSON logs — activate the `json` Spring profile (spring.profiles.active=json)
-  # and Blipradius emits Logstash-formatted lines suitable for a log aggregator.
+  # and BlipRadius emits Logstash-formatted lines suitable for a log aggregator.
   logging:
     json: false
   # Repo scanning. `allow-local-paths` lets a source be a filesystem path instead of a git URL —
@@ -102,7 +102,7 @@ apiguard:
 cors:
   allowed-origins: ${CORS_ORIGINS:http://localhost:*}
 
-# Blipradius's own REST API, for anyone wiring it into CI or another tool.
+# BlipRadius's own REST API, for anyone wiring it into CI or another tool.
 springdoc:
   api-docs:
     path: /v3/api-docs

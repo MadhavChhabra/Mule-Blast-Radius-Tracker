@@ -64,7 +64,7 @@ class ImpactReportTest {
     @Test
     void markdownCarriesRiskBreakingAndConsumers() throws Exception {
         String md = ImpactReport.renderMarkdown(parse(RESPONSE));
-        assertTrue(md.contains("Blipradius impact — `orders-api`"), md);
+        assertTrue(md.contains("BlipRadius impact — `orders-api`"), md);
         assertTrue(md.contains("Deployment risk: HIGH (72/100)"), md);
         assertTrue(md.contains("**MAJOR** (1.2.0 → 2.0.0)"), md);
         assertTrue(md.contains("`GET /orders/{id}` — Response field 'total' removed"), md);

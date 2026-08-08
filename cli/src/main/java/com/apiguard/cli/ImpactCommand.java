@@ -19,7 +19,7 @@ import java.time.Duration;
 import java.util.Locale;
 
 @Command(name = "impact", mixinStandardHelpOptions = true,
-        description = "Analyze a spec change against a Blipradius server's estate: blast radius, risk, changelog. CI-friendly.")
+        description = "Analyze a spec change against a BlipRadius server's estate: blast radius, risk, changelog. CI-friendly.")
 public final class ImpactCommand implements java.util.concurrent.Callable<Integer> {
 
     @Parameters(index = "0", paramLabel = "OLD_OR_NEW", arity = "1",
@@ -38,7 +38,7 @@ public final class ImpactCommand implements java.util.concurrent.Callable<Intege
     String apiName;
 
     @Option(names = "--server",
-            description = "Blipradius server base URL. Default: $APIGUARD_SERVER or http://localhost:8080.",
+            description = "BlipRadius server base URL. Default: $APIGUARD_SERVER or http://localhost:8080.",
             defaultValue = "${env:APIGUARD_SERVER:-http://localhost:8080}")
     String server;
 
@@ -119,12 +119,12 @@ public final class ImpactCommand implements java.util.concurrent.Callable<Intege
         try {
             response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (IOException e) {
-            System.err.println("Could not reach Blipradius at " + base + ": " + e.getMessage());
-            System.err.println("Set --server or APIGUARD_SERVER to your Blipradius URL.");
+            System.err.println("Could not reach BlipRadius at " + base + ": " + e.getMessage());
+            System.err.println("Set --server or APIGUARD_SERVER to your BlipRadius URL.");
             return 2;
         }
         if (response.statusCode() != 200) {
-            System.err.println("Blipradius returned HTTP " + response.statusCode() + ": "
+            System.err.println("BlipRadius returned HTTP " + response.statusCode() + ": "
                     + firstLine(response.body()));
             return 2;
         }

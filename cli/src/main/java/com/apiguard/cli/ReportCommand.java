@@ -15,11 +15,11 @@ import java.time.Duration;
 import java.util.concurrent.Callable;
 
 @Command(name = "report", mixinStandardHelpOptions = true,
-        description = "Download the estate report (Markdown) from a Blipradius server.")
+        description = "Download the estate report (Markdown) from a BlipRadius server.")
 public final class ReportCommand implements Callable<Integer> {
 
     @Option(names = "--server",
-            description = "Blipradius server base URL. Default: $APIGUARD_SERVER or http://localhost:8080.",
+            description = "BlipRadius server base URL. Default: $APIGUARD_SERVER or http://localhost:8080.",
             defaultValue = "${env:APIGUARD_SERVER:-http://localhost:8080}")
     String server;
 
@@ -46,11 +46,11 @@ public final class ReportCommand implements Callable<Integer> {
         try {
             response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (IOException e) {
-            System.err.println("Could not reach Blipradius at " + base + ": " + e.getMessage());
+            System.err.println("Could not reach BlipRadius at " + base + ": " + e.getMessage());
             return 2;
         }
         if (response.statusCode() != 200) {
-            System.err.println("Blipradius returned HTTP " + response.statusCode());
+            System.err.println("BlipRadius returned HTTP " + response.statusCode());
             return 2;
         }
         if (out == null) {

@@ -73,7 +73,7 @@ ApiErrorInfo describeApiError(Object error) {
     return ApiErrorInfo(
       Icons.cloud_off,
       AppColors.breaking,
-      "Can't reach the Blipradius server",
+      "Can't reach the BlipRadius server",
       apiBase.isEmpty
           ? "The server isn't responding. Is it running?"
           : 'No response from $apiBase. Is the server running?',

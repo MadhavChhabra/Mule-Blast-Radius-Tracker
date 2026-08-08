@@ -1,4 +1,4 @@
-name: 'Blipradius'
+name: 'BlipRadius'
 description: 'Detect breaking OpenAPI changes, compute field-level blast radius, and comment on the PR.'
 branding:
   icon: 'shield'
@@ -19,7 +19,7 @@ inputs:
     required: false
     default: '.'
   server:
-    description: 'Blipradius server URL. With `api`, runs `impact`: blast radius from the real synced estate, PR-ready report.'
+    description: 'BlipRadius server URL. With `api`, runs `impact`: blast radius from the real synced estate, PR-ready report.'
     required: false
     default: ''
   fail-on-breaking:
@@ -46,7 +46,7 @@ runs:
       with:
         distribution: 'temurin'
         java-version: '17'
-    - name: Run Blipradius
+    - name: Run BlipRadius
       id: run
       shell: bash
       env:

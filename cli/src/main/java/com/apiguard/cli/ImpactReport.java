@@ -22,7 +22,7 @@ final class ImpactReport {
     static void renderConsole(JsonNode r, Ansi ansi, java.io.PrintStream out) {
         JsonNode s = r.path("summary");
         JsonNode a = r.path("advisory");
-        out.println(ansi.bold("Blipradius impact — " + r.path("api").asText("?")));
+        out.println(ansi.bold("BlipRadius impact — " + r.path("api").asText("?")));
         out.println(ansi.dim(s.path("total").asInt() + " change(s): "
                 + s.path("breaking").asLong() + " breaking · "
                 + s.path("safe").asLong() + " non-breaking · "
@@ -74,7 +74,7 @@ final class ImpactReport {
         JsonNode s = r.path("summary");
         JsonNode a = r.path("advisory");
         StringBuilder md = new StringBuilder();
-        md.append("## 🛡️ Blipradius impact — `").append(r.path("api").asText("?")).append("`\n\n");
+        md.append("## 🛡️ BlipRadius impact — `").append(r.path("api").asText("?")).append("`\n\n");
 
         String riskEmoji = switch (a.path("riskLevel").asText("")) {
             case "CRITICAL" -> "🟥";

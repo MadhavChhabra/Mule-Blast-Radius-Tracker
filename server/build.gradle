@@ -17,7 +17,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // Publishes Blipradius's own REST API at /v3/api-docs (+ /api-docs UI).
+    // Publishes BlipRadius's own REST API at /v3/api-docs (+ /api-docs UI).
     // swagger-parser (pulled in by :core for RAML/OAS loading) still carries javax-era annotation
     // references; springdoc reflects over them, so the legacy annotation API has to be resolvable.
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'

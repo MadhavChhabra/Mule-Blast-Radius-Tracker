@@ -191,7 +191,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const ScreenHeader('Sources',
-            'Connect your Anypoint org and your repos. Blipradius reads real relationships from both.'),
+            'Connect your Anypoint org and your repos. BlipRadius reads real relationships from both.'),
         Expanded(
           child: AsyncView<SourcesStatus>(
             future: _status!,

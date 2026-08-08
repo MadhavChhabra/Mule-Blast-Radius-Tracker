@@ -9,8 +9,8 @@ import java.nio.charset.StandardCharsets;
 @Command(
         name = "blipradius",
         mixinStandardHelpOptions = true,
-        version = "Blipradius 0.1.0",
-        description = "Blipradius — see the blast radius of an API change: detect breaking changes, map real dependencies, write changelogs.",
+        version = "BlipRadius 0.1.0",
+        description = "BlipRadius — see the blast radius of an API change: detect breaking changes, map real dependencies, write changelogs.",
         subcommands = {DiffCommand.class, CheckCommand.class, ScanCommand.class, ImpactCommand.class,
                 ReportCommand.class, InitCommand.class}
 )

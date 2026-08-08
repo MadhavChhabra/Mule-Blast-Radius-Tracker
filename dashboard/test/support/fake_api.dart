@@ -50,7 +50,7 @@ http.Client fakeApiClient({Set<String> failPaths = const {}, bool emptyGraph = f
       } else if (p == '/api/sources') {
         body = _sources;
       } else if (p == '/api/health') {
-        body = '{"status":"UP","name":"Blipradius","version":"0.1.0","uptimeSeconds":5,"authRequired":false}';
+        body = '{"status":"UP","name":"BlipRadius","version":"0.1.0","uptimeSeconds":5,"authRequired":false}';
       } else if (p == '/api/sources/sync/status') {
         body = '{"state":"idle"}';
       } else if (p == '/api/endpoint') {

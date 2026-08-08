@@ -71,7 +71,7 @@ public class NotificationService {
                 .map(BlastRadiusResolver.ConsumerImpact::consumer).distinct().count();
         RiskScorer.Risk risk = RiskScorer.score((int) breaking, (int) additive, (int) impactedConsumers);
 
-        StringBuilder sb = new StringBuilder("## 🛡️ Blipradius report\n\n");
+        StringBuilder sb = new StringBuilder("## 🛡️ BlipRadius report\n\n");
 
         sb.append("| Deployment risk | Recommended version |\n|---|---|\n");
         sb.append("| ").append(riskBadge(risk)).append(" | ")
@@ -102,7 +102,7 @@ public class NotificationService {
         impacts.stream().filter(i -> i.change().isBreaking())
                 .flatMap(i -> i.downstream().stream())
                 .forEach(c -> consumers.add(c.consumer()));
-        return ":shield: *Blipradius* — `" + apiName + "` PR " + prRef + "\n"
+        return ":shield: *BlipRadius* — `" + apiName + "` PR " + prRef + "\n"
                 + breaking + " breaking change(s)"
                 + (consumers.isEmpty() ? "" : " affecting: " + String.join(", ", consumers))
                 + (channels.isEmpty() ? "" : "\ncc " + String.join(" ", channels));

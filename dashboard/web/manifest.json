@@ -1,6 +1,6 @@
 {
-    "name": "Blipradius",
-    "short_name": "Blipradius",
+    "name": "BlipRadius",
+    "short_name": "BlipRadius",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -56,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.shield_outlined, size: 34, color: scheme.primary),
             const SizedBox(width: 12),
-            Text('Blipradius',
+            Text('BlipRadius',
                 style: Theme.of(context).textTheme.headlineMedium
                     ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
             const Spacer(),
@@ -200,7 +200,7 @@ class _PinnedApis extends StatelessWidget {
   }
 }
 
-/// The honest limit of what Blipradius can answer. Endpoint and field truth comes only from repo
+/// The honest limit of what BlipRadius can answer. Endpoint and field truth comes only from repo
 /// scans, so this card is both the credibility statement and the one action that improves it.
 class _CoverageCard extends StatelessWidget {
   final ApiClient api;
@@ -242,7 +242,7 @@ class _CoverageCard extends StatelessWidget {
                 complete
                     ? 'Every dependency is known per endpoint — field questions get a real yes or no.'
                     : '${c.shallow} of ${c.dependencies} dependencies are app-to-app only. For those, '
-                        'Blipradius must treat every field as "maybe read". Registering those repos in '
+                        'BlipRadius must treat every field as "maybe read". Registering those repos in '
                         'Sources turns each one into an answer.',
                 style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -487,7 +487,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
             Row(children: [
               Icon(Icons.shield_outlined, size: 34, color: scheme.primary),
               const SizedBox(width: 12),
-              Text('Welcome to Blipradius',
+              Text('Welcome to BlipRadius',
                   style: Theme.of(context).textTheme.headlineMedium
                       ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
             ]),
@@ -709,7 +709,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
       isActive: _step >= 2,
       title: const Text('Sync everything', style: TextStyle(fontWeight: FontWeight.w700)),
       content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Blipradius reads your Anypoint contracts and scans every registered repo '
+        const Text('BlipRadius reads your Anypoint contracts and scans every registered repo '
             'for its Mule flows, property files and DataWeave lineage. First sync on a real org '
             'is typically 1–2 minutes.'),
         const SizedBox(height: 14),

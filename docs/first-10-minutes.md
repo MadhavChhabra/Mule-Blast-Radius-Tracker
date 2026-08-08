@@ -1,4 +1,4 @@
-# Your first 10 minutes with Blipradius
+# Your first 10 minutes with BlipRadius
 
 This is the shortest path from "I cloned the repo" to "I can see my estate and gate a PR". It assumes:
 
@@ -38,7 +38,7 @@ Open [http://localhost:8080](http://localhost:8080). The estate is empty on purp
 The Home screen shows a 3-step card ("Connect your sources → Sync → Explore"). Click **Get started**.
 
 1. **Anypoint** — paste your Connected App `client_id` / `client_secret`, pick your control-plane region.
-2. **Repos** — paste one GitHub or Bitbucket URL. It can be a single repo (`.../org/repo`) or an org (`.../org`) — Blipradius expands orgs to all their repos.
+2. **Repos** — paste one GitHub or Bitbucket URL. It can be a single repo (`.../org/repo`) or an org (`.../org`) — BlipRadius expands orgs to all their repos.
 3. **Sync everything** — you'll see a progress bar with a *Cancel* button. On a real 100-app org the first sync is ~2 minutes.
 
 When it finishes, Home shows: how many APIs, how many breaking edges (from any known analyzes), the top depended-on APIs, and any governance findings (upward calls, cycles, layer skips).
@@ -85,7 +85,7 @@ Add a repository secret named `WAKEGRAPH_API_KEY` if your server has API-key aut
 
 ## Minute 9 — see the PR comment
 
-Open a PR that changes your spec. Blipradius posts one comment with:
+Open a PR that changes your spec. BlipRadius posts one comment with:
 
 - 🟥/🟧/🟨/🟩 risk tile + recommended semver bump.
 - The full impact table.

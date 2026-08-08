@@ -12,7 +12,7 @@ import java.util.Locale;
 import java.util.concurrent.Callable;
 
 @Command(name = "init", mixinStandardHelpOptions = true,
-        description = "Enroll this repo in Blipradius: writes .blipradius.yml and a CI workflow that runs `blipradius impact` on every PR touching the spec.")
+        description = "Enroll this repo in BlipRadius: writes .blipradius.yml and a CI workflow that runs `blipradius impact` on every PR touching the spec.")
 public final class InitCommand implements Callable<Integer> {
 
     @Option(names = {"-a", "--api"}, required = true,
@@ -24,7 +24,7 @@ public final class InitCommand implements Callable<Integer> {
     String specPath;
 
     @Option(names = "--server",
-            description = "Blipradius server base URL that CI will call.",
+            description = "BlipRadius server base URL that CI will call.",
             defaultValue = "https://blipradius.internal")
     String server;
 
@@ -37,7 +37,7 @@ public final class InitCommand implements Callable<Integer> {
     String ci;
 
     @Option(names = "--api-key-secret",
-            description = "Name of the CI secret that holds the Blipradius API key. Default: WAKEGRAPH_API_KEY.",
+            description = "Name of the CI secret that holds the BlipRadius API key. Default: WAKEGRAPH_API_KEY.",
             defaultValue = "WAKEGRAPH_API_KEY")
     String apiKeySecret;
 
@@ -87,16 +87,16 @@ public final class InitCommand implements Callable<Integer> {
         boolean workflowWritten = writeIfAbsent(workflow, workflowBody, ansi);
 
         System.out.println();
-        System.out.println(ansi.bold("Blipradius enrolled."));
+        System.out.println(ansi.bold("BlipRadius enrolled."));
         System.out.println("  config    " + rel(root, config) + (configWritten ? "" : ansi.dim("  (kept)")));
         System.out.println("  workflow  " + rel(root, workflow) + (workflowWritten ? "" : ansi.dim("  (kept)")));
         System.out.println();
         System.out.println("Next steps:");
         System.out.println("  1. Add the CI secret " + ansi.bold(apiKeySecret)
-                + " if your Blipradius server has API-key auth on.");
+                + " if your BlipRadius server has API-key auth on.");
         System.out.println("  2. Commit the two files above.");
         System.out.println("  3. Open a PR that changes " + ansi.bold(specPath)
-                + " and Blipradius will comment with the blast radius.");
+                + " and BlipRadius will comment with the blast radius.");
         return 0;
     }
 
@@ -121,7 +121,7 @@ public final class InitCommand implements Callable<Integer> {
 
     private String projectConfig() {
         return "" +
-                "# Blipradius project config — committed to the repo, read by CI.\n" +
+                "# BlipRadius project config — committed to the repo, read by CI.\n" +
                 "api: " + apiName + "\n" +
                 "spec: " + specPath + "\n" +
                 "base: " + baseBranch + "\n" +
@@ -132,7 +132,7 @@ public final class InitCommand implements Callable<Integer> {
 
     private String githubWorkflow() {
         return "" +
-                "name: Blipradius\n" +
+                "name: BlipRadius\n" +
                 "on:\n" +
                 "  pull_request:\n" +
                 "    paths:\n" +
@@ -161,7 +161,7 @@ public final class InitCommand implements Callable<Integer> {
 
     private String bitbucketPipeline() {
         return "" +
-                "# Blipradius impact — runs on every PR touching " + specPath + "\n" +
+                "# BlipRadius impact — runs on every PR touching " + specPath + "\n" +
                 "# Repository variables required (Repository settings → Repository variables):\n" +
                 "#   WAKEGRAPH_SERVER   = " + server + "\n" +
                 "#   WAKEGRAPH_API_KEY  = <secret, matches server's apiguard.security.api-key>\n" +
@@ -170,7 +170,7 @@ public final class InitCommand implements Callable<Integer> {
                 "  pull-requests:\n" +
                 "    '**':\n" +
                 "      - step:\n" +
-                "          name: Blipradius impact\n" +
+                "          name: BlipRadius impact\n" +
                 "          clone:\n" +
                 "            depth: full\n" +
                 "          script:\n" +

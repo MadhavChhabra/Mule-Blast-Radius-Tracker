@@ -92,7 +92,7 @@ class _ApiGuardAppState extends State<ApiGuardApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: _theme,
       builder: (context, mode, _) => MaterialApp(
-        title: 'Blipradius',
+        title: 'BlipRadius',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
@@ -206,7 +206,7 @@ class _HomeShellState extends State<HomeShell> {
         content: SizedBox(
           width: 380,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('If the Blipradius server has API-key auth enabled '
+            const Text('If the BlipRadius server has API-key auth enabled '
                 '(apiguard.security.api-key), paste the key here. It is stored only in this '
                 'browser.'),
             const SizedBox(height: 12),
@@ -284,7 +284,7 @@ class _HomeShellState extends State<HomeShell> {
         title: Row(children: [
           Icon(Icons.shield_outlined, color: scheme.primary, size: 22),
           const SizedBox(width: 8),
-          Text('Blipradius',
+          Text('BlipRadius',
               style: TextStyle(fontWeight: FontWeight.w800, color: scheme.primary, fontSize: 16)),
         ]),
         actions: [
@@ -347,7 +347,7 @@ class _HomeShellState extends State<HomeShell> {
                         children: [
                           Icon(Icons.shield_outlined, color: scheme.primary, size: 30),
                           const SizedBox(height: 4),
-                          Text('Blipradius',
+                          Text('BlipRadius',
                               style: TextStyle(fontWeight: FontWeight.w800, color: scheme.primary)),
                           const SizedBox(height: 12),
                           IconButton.filledTonal(
@@ -494,8 +494,8 @@ class _ServerStatusState extends State<_ServerStatus> {
     final label = up ? 'v${_health!.version}' : (_error ? 'Offline' : '…');
     return Tooltip(
       message: up
-          ? 'Connected — Blipradius server ${_health!.version}'
-          : (_error ? 'Blipradius server unreachable' : 'Checking server…'),
+          ? 'Connected — BlipRadius server ${_health!.version}'
+          : (_error ? 'BlipRadius server unreachable' : 'Checking server…'),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 8, height: 8,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle)),

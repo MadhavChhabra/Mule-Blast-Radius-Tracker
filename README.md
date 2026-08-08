@@ -1,7 +1,7 @@
-# 🛡️ Blipradius
+# 🛡️ BlipRadius
 
 **See the blast radius of an API change across your MuleSoft estate.** Change a RAML/OpenAPI spec
-and Blipradius tells you the **blast radius before you merge** — mapped from your *real* dependency
+and BlipRadius tells you the **blast radius before you merge** — mapped from your *real* dependency
 network (Exchange + API Manager + Bitbucket/GitHub repo flows) — and documents it automatically.
 
 Three features on one pipeline (the semantic diff):
@@ -72,7 +72,7 @@ SAFE       POST /orders  request.couponCode  (New optional request field 'coupon
 
 Drop `apiguard check` into a **pre-commit hook** or CI to gate breaking changes.
 
-When a Blipradius server is running with your synced estate, use `impact` instead — the blast radius
+When a BlipRadius server is running with your synced estate, use `impact` instead — the blast radius
 then comes from the *real* dependency network (Anypoint contracts + every scanned repo), not just
 the manifests in this checkout, and you get a PR-ready Markdown report:
 
@@ -114,7 +114,7 @@ UI and the API on the same origin — no CORS, no second URL.
 ```bash
 cp deploy/.env.example deploy/.env        # set APIGUARD_API_KEY_SERVER, APIGUARD_ENCRYPTION_KEY
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
-# Blipradius → http://localhost:8080
+# BlipRadius → http://localhost:8080
 ```
 
 ### 4. As a GitHub Action
@@ -261,4 +261,4 @@ cd dashboard && flutter test    # widget test
 
 ---
 
-*Built from a single build brief. `Blipradius` (formerly APIGuard, then briefly FlowSight) is the product name; internal identifiers remain `apiguard`.*
+*Built from a single build brief. `BlipRadius` (formerly APIGuard, then briefly FlowSight) is the product name; internal identifiers remain `apiguard`.*

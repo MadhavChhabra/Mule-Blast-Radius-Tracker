@@ -13,7 +13,7 @@ import java.util.Set;
 
 /**
  * Warns, once at startup, when the server is running without API-key auth on a
- * profile that is likely a shared deployment. A shared Blipradius server holds
+ * profile that is likely a shared deployment. A shared BlipRadius server holds
  * Anypoint credentials and repository tokens, so leaving /api/* open is a real
  * exposure. Local single-user profiles (desktop/dev/test) are exempt.
  */
@@ -40,7 +40,7 @@ public class SecurityPostureLogger implements ApplicationListener<ApplicationRea
             log.warn("""
 
                     ****************************************************************
-                    * Blipradius is running WITHOUT API-key authentication.         *
+                    * BlipRadius is running WITHOUT API-key authentication.         *
                     * All /api/* endpoints are open — anyone who can reach this    *
                     * server can read your estate and trigger syncs, and it holds  *
                     * Anypoint credentials and repo tokens.                        *

@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 final String apiBase = _resolveApiBase();
 
-/// A release bundle is always served by the Blipradius server itself, so it talks to its own origin
+/// A release bundle is always served by the BlipRadius server itself, so it talks to its own origin
 /// — whatever port, hostname or reverse proxy it sits behind. Only `flutter run -d chrome`, which
 /// serves a debug build from a throwaway port with no API on it, needs the localhost fallback.
 String _resolveApiBase() {
@@ -251,10 +251,10 @@ class ApiClient {
     try {
       return await send().timeout(timeout);
     } on TimeoutException {
-      throw Exception('The Blipradius server did not respond within '
+      throw Exception('The BlipRadius server did not respond within '
           '${timeout.inSeconds}s. It may be busy syncing, or unreachable.');
     } on http.ClientException catch (e) {
-      throw Exception('Could not reach the Blipradius server at '
+      throw Exception('Could not reach the BlipRadius server at '
           '${apiBase.isEmpty ? "this address" : apiBase}. ${e.message}');
     }
   }
@@ -270,7 +270,7 @@ class ApiClient {
     if (status == 403) return 'Not allowed (403).';
     if (status == 404) return 'Not found (404).';
     if (status == 429) return 'The server is rate-limiting requests (429). Try again shortly.';
-    if (status >= 500) return 'The Blipradius server hit an error ($status). Check its logs.';
+    if (status >= 500) return 'The BlipRadius server hit an error ($status). Check its logs.';
     return 'Request failed ($status)';
   }
 }
@@ -291,7 +291,7 @@ class HealthInfo {
   HealthInfo(this.status, this.name, this.version, this.uptimeSeconds, this.authRequired);
   bool get up => status == 'UP';
   factory HealthInfo.fromJson(Map<String, dynamic> j) => HealthInfo(
-      j['status'] ?? 'UNKNOWN', j['name'] ?? 'Blipradius', j['version'] ?? '',
+      j['status'] ?? 'UNKNOWN', j['name'] ?? 'BlipRadius', j['version'] ?? '',
       j['uptimeSeconds'] ?? 0, j['authRequired'] == true);
 }
 
