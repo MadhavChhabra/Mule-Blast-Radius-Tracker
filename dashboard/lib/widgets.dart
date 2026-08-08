@@ -54,10 +54,20 @@ ApiErrorInfo describeApiError(Object error) {
       false,
     );
   }
+  if (lower.contains('did not respond within')) {
+    return const ApiErrorInfo(
+      Icons.hourglass_disabled_outlined,
+      AppColors.warning,
+      'The server took too long to answer',
+      'It may be busy running a sync. Wait a moment and retry — nothing was lost.',
+      false,
+    );
+  }
   if (lower.contains('failed host lookup') ||
       lower.contains('socketexception') ||
       lower.contains('connection refused') ||
       lower.contains('clientexception') ||
+      lower.contains('could not reach') ||
       lower.contains('xmlhttprequest') ||
       lower.contains('failed to fetch')) {
     return ApiErrorInfo(
@@ -106,7 +116,7 @@ class ApiErrorState extends StatelessWidget {
                       ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   textAlign: TextAlign.center),
             ),
-            if (info.offline) ...[
+            if (info.offline && apiBase.contains('localhost')) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

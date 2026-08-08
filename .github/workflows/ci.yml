@@ -5,8 +5,17 @@ on:
     branches: [ main ]
   pull_request:
 
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the running job pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
+  jvm:
+    name: Core / CLI / server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,10 +24,40 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Build & test
         run: ./gradlew build --no-daemon
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jvm-test-reports
+          path: '**/build/reports/tests/**'
+          if-no-files-found: ignore
       - name: Upload CLI jar
         uses: actions/upload-artifact@v4
         with:
           name: apiguard-cli
           path: cli/build/libs/apiguard.jar
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.3'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Test
+        run: flutter test
+      - name: Build web bundle
+        run: flutter build web --release --web-renderer html

@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+**/.gradle
+**/build
+dashboard/.dart_tool
+dashboard/build
+docs
+samples/**/target
+deploy/.env
+.env
+*.md
+!README.md

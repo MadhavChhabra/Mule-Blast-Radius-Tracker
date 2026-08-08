@@ -12,6 +12,10 @@ String? loadStoredApiKey() => null;
 
 void storeApiKey(String? key) {}
 
+String? loadStoredSetting(String key) => null;
+
+void storeSetting(String key, String? value) {}
+
 String readLocationHash() => '';
 
 void writeLocationHash(String hash) {}

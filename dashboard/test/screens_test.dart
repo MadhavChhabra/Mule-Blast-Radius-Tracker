@@ -10,17 +10,16 @@ import 'package:apiguard_dashboard/widgets.dart';
 import 'support/fake_api.dart';
 
 void main() {
-  testWidgets('Home renders health, insights and action cards without layout errors',
-      (tester) async {
+  testWidgets('Home shows estate state, not a second copy of the navigation', (tester) async {
     await pumpScreen(tester, HomeScreen(api: fakeApi(), open: noopOpen));
 
     expect(tester.takeException(), isNull);
     // Estate health tiles built from the fake graph.
     expect(find.text('Estate health'), findsOneWidget);
     expect(find.text('Most depended-on APIs'), findsOneWidget);
-    // Wide-branch action cards.
-    expect(find.text('Connect your estate'), findsOneWidget);
-    expect(find.text('See the whole map'), findsOneWidget);
+    // The nav rail already routes; Home must not repeat it as cards and a quick-start list.
+    expect(find.text('Connect your estate'), findsNothing);
+    expect(find.text('Quick start'), findsNothing);
   });
 
   testWidgets('Sources renders the sync bar and repo/anypoint cards', (tester) async {

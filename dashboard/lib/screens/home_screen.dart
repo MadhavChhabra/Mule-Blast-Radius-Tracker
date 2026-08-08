@@ -74,59 +74,117 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 24),
         _EstateHealth(api: api, open: open),
         const SizedBox(height: 16),
+        _CoverageCard(api: api, open: open),
+        const SizedBox(height: 16),
         _EstateInsights(api: api, open: open),
-        const SizedBox(height: 24),
-        LayoutBuilder(builder: (context, c) {
-          final wide = c.maxWidth > 900;
-          final cards = [
-            _ActionCard(
-              icon: Icons.cable_outlined,
-              color: AppColors.additive,
-              title: 'Connect your estate',
-              body: 'Add your Anypoint org and your Bitbucket/GitHub repos in one place, then Sync '
-                  'everything. Relationships are read from contracts, flows and property files.',
-              cta: 'Sources',
-              onTap: () => open(Tabs.sources),
-            ),
-            _ActionCard(
-              icon: Icons.hub_outlined,
-              color: AppColors.seed,
-              title: 'See the whole map',
-              body: 'The API-led estate — apps → experience → process → system → systems of record. '
-                  'Click any node to open it.',
-              cta: 'Estate map',
-              onTap: () => open(Tabs.graph),
-            ),
-            _ActionCard(
-              icon: Icons.api_outlined,
-              color: AppColors.experience,
-              title: 'Dive into an API',
-              body: 'Everything about one API: its endpoints (what each calls and who calls it), change '
-                  'impact, consumers & blast radius, and history — all in one place.',
-              cta: 'API hub',
-              onTap: () => open(Tabs.apiHub),
-            ),
-          ];
-          return wide
-              ? IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (int i = 0; i < cards.length; i++) ...[
-                        Expanded(child: cards[i]),
-                        if (i < cards.length - 1) const SizedBox(width: 16),
-                      ]
-                    ],
-                  ),
-                )
-              : Column(children: [
-                  for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 16), child: card),
-                ]);
-        }),
-        const SizedBox(height: 24),
-        _QuickStart(open: open),
       ],
     );
+  }
+}
+
+/// The honest limit of what Wakegraph can answer. Endpoint and field truth comes only from repo
+/// scans, so this card is both the credibility statement and the one action that improves it.
+class _CoverageCard extends StatelessWidget {
+  final ApiClient api;
+  final OpenFn open;
+  const _CoverageCard({required this.api, required this.open});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<GraphDto>(
+      future: api.graph(),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done || snap.hasError) {
+          return const SizedBox.shrink();
+        }
+        final c = snap.data!.coverage;
+        if (c.dependencies == 0) return const SizedBox.shrink();
+        final complete = c.isComplete;
+        final accent = complete
+            ? AppColors.additive
+            : (c.ratio < 0.5 ? AppColors.breaking : AppColors.warning);
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(complete ? Icons.verified_outlined : Icons.rule_folder_outlined,
+                    size: 20, color: accent),
+                const SizedBox(width: 8),
+                Text('Answer depth', style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+                const Spacer(),
+                Text('${c.endpointLevel}/${c.dependencies}',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: accent)),
+              ]),
+              const SizedBox(height: 12),
+              _CoverageBar(coverage: c),
+              const SizedBox(height: 12),
+              Text(
+                complete
+                    ? 'Every dependency is known per endpoint — field questions get a real yes or no.'
+                    : '${c.shallow} of ${c.dependencies} dependencies are app-to-app only. For those, '
+                        'Wakegraph must treat every field as "maybe read". Registering those repos in '
+                        'Sources turns each one into an answer.',
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+              if (!complete) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => open(Tabs.sources),
+                    icon: const Icon(Icons.add_link, size: 18),
+                    label: const Text('Add repos'),
+                  ),
+                ),
+              ],
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CoverageBar extends StatelessWidget {
+  final GraphCoverage coverage;
+  const _CoverageBar({required this.coverage});
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    Widget legend(Color color, String label, int n) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 8, height: 8,
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 6),
+          Text('$n $label', style: TextStyle(fontSize: 11, color: muted)),
+        ]);
+    final field = coverage.fieldLevel;
+    final endpointOnly = coverage.endpointLevel - field;
+    final shallow = coverage.shallow;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: SizedBox(
+          height: 10,
+          child: Row(children: [
+            if (field > 0) Expanded(flex: field, child: Container(color: AppColors.additive)),
+            if (endpointOnly > 0)
+              Expanded(flex: endpointOnly, child: Container(color: AppColors.experience)),
+            if (shallow > 0)
+              Expanded(flex: shallow, child: Container(color: AppColors.neutral.withOpacity(0.35))),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(spacing: 14, runSpacing: 4, children: [
+        legend(AppColors.additive, 'field-level', field),
+        legend(AppColors.experience, 'endpoint-level', endpointOnly),
+        legend(AppColors.neutral.withOpacity(0.35), 'app-to-app only', shallow),
+      ]),
+    ]);
   }
 }
 
@@ -355,7 +413,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
       ]),
       content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Paste a Connected App credential with API Manager: Read '
-            '(optionally Exchange: Read). Secrets are stored in memory only.'),
+            '(optionally Exchange: Read). The secret is encrypted and saved, so you connect once.'),
         const SizedBox(height: 12),
         TextField(
           controller: _clientId,
@@ -615,11 +673,13 @@ class _EstateHealth extends StatelessWidget {
               _tile('${layer('APP')}', 'apps', AppColors.app),
               _tile('$breaking', 'breaking edges', breaking > 0 ? AppColors.breaking : AppColors.additive),
             ]),
+            const SizedBox(height: 12),
+            _EndpointCoverage(graph: g, open: open),
             if (top.isNotEmpty) ...[
               const Divider(height: 28),
               Text('Most depended-on APIs', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 6),
-              ...top.map((n) => _TopRow(node: n, onTap: () => open(Tabs.endpoint, api: n.id))),
+              ...top.map((n) => _TopRow(node: n, onTap: () => open(Tabs.apiHub, api: n.id))),
             ],
           ]),
         ));
@@ -653,6 +713,46 @@ class _EstateHealth extends StatelessWidget {
         ),
         ),
       );
+}
+
+/// Endpoint-level detail comes only from scanned repos; Anypoint contracts are whole-API. Without
+/// this line an Anypoint-only user sees an empty Endpoints tab with no idea why, or what to do.
+class _EndpointCoverage extends StatelessWidget {
+  final GraphDto graph;
+  final OpenFn open;
+  const _EndpointCoverage({required this.graph, required this.open});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = graph.edges.length;
+    if (total == 0) return const SizedBox.shrink();
+    final detailed = graph.edges
+        .where((e) => e.via.any((v) => v != 'whole API'))
+        .length;
+    if (detailed == total) {
+      return Row(children: [
+        const Icon(Icons.check_circle_outline, size: 16, color: AppColors.additive),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text('All $total dependencies have endpoint-level detail.',
+              style: Theme.of(context).textTheme.bodySmall),
+        ),
+      ]);
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Icon(Icons.help_outline, size: 16, color: AppColors.warning),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+            '$detailed of $total dependencies have endpoint-level detail. The rest came from '
+            'Anypoint contracts, which only say "this app calls this API" — add their repos to see '
+            'which endpoints and fields.',
+            style: Theme.of(context).textTheme.bodySmall),
+      ),
+      const SizedBox(width: 8),
+      TextButton(onPressed: () => open(Tabs.sources), child: const Text('Add repos')),
+    ]);
+  }
 }
 
 class _EstateInsights extends StatelessWidget {
@@ -756,7 +856,7 @@ class _FindingRow extends StatelessWidget {
       message: finding.detail,
       waitDuration: const Duration(milliseconds: 400),
       child: InkWell(
-        onTap: finding.apis.isEmpty ? null : () => open(Tabs.endpoint, api: finding.apis.first),
+        onTap: finding.apis.isEmpty ? null : () => open(Tabs.apiHub, api: finding.apis.first),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
@@ -816,93 +916,4 @@ class _HealthShell extends StatelessWidget {
   const _HealthShell({required this.child});
   @override
   Widget build(BuildContext context) => Card(child: child);
-}
-
-class _ActionCard extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title, body, cta;
-  final VoidCallback onTap;
-  const _ActionCard({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.body,
-    required this.cta,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: color.withOpacity(0.14), borderRadius: BorderRadius.circular(10)),
-                child: Icon(icon, color: color),
-              ),
-              const SizedBox(height: 14),
-              Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text(body, style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 14),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.tonal(onPressed: onTap, child: Text(cta)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _QuickStart extends StatelessWidget {
-  final OpenFn open;
-  const _QuickStart({required this.open});
-
-  @override
-  Widget build(BuildContext context) {
-    Widget step(String n, String text, {VoidCallback? onTap}) => InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-            child: Row(children: [
-              CircleAvatar(radius: 12, child: Text(n, style: const TextStyle(fontSize: 12))),
-              const SizedBox(width: 10),
-              Expanded(child: Text(text)),
-              if (onTap != null) const Icon(Icons.chevron_right, size: 18),
-            ]),
-          ),
-        );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Quick start', style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            step('1', 'Sources — connect Anypoint and/or add a repo, then Sync everything.',
-                onTap: () => open(Tabs.sources)),
-            step('2', 'Estate map — see the whole API-led network; click any node.',
-                onTap: () => open(Tabs.graph)),
-            step('3', 'API hub — endpoints, change impact, consumers and history for one API.',
-                onTap: () => open(Tabs.apiHub)),
-          ],
-        ),
-      ),
-    );
-  }
 }

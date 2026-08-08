@@ -22,14 +22,6 @@ class Tabs {
   static const graph = 2;
   static const apiHub = 3;
   static const changelog = 4;
-
-  static const discover = sources;
-  static const impact = apiHub;
-  static const propagation = apiHub;
-  static const explorer = apiHub;
-  static const endpoint = apiHub;
-  static const radar = graph;
-  static const changes = apiHub;
 }
 
 class NavTarget {
@@ -41,23 +33,79 @@ class NavTarget {
 
 typedef OpenFn = void Function(int index, {String? api, String? endpoint, String? field});
 
-class ApiGuardApp extends StatelessWidget {
+/// Theme choice is a per-developer preference (bright office vs dark editor), so it is remembered
+/// in the browser rather than inferred once from the OS.
+class ThemeController extends ValueNotifier<ThemeMode> {
+  ThemeController() : super(_read());
+
+  static ThemeMode _read() {
+    switch (web_util.loadStoredSetting('themeMode')) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      default:
+        return ThemeMode.system;
+    }
+  }
+
+  void cycle() {
+    value = switch (value) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+    web_util.storeSetting('themeMode', value.name);
+  }
+
+  IconData get icon => switch (value) {
+        ThemeMode.system => Icons.brightness_auto_outlined,
+        ThemeMode.light => Icons.light_mode_outlined,
+        ThemeMode.dark => Icons.dark_mode_outlined,
+      };
+
+  String get label => switch (value) {
+        ThemeMode.system => 'Theme: follows your system',
+        ThemeMode.light => 'Theme: light',
+        ThemeMode.dark => 'Theme: dark',
+      };
+}
+
+class ApiGuardApp extends StatefulWidget {
   const ApiGuardApp({super.key});
 
   @override
+  State<ApiGuardApp> createState() => _ApiGuardAppState();
+}
+
+class _ApiGuardAppState extends State<ApiGuardApp> {
+  final _theme = ThemeController();
+
+  @override
+  void dispose() {
+    _theme.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Wakegraph',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
-      home: const HomeShell(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: _theme,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Wakegraph',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: mode,
+        home: HomeShell(theme: _theme),
+      ),
     );
   }
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  final ThemeController? theme;
+  const HomeShell({super.key, this.theme});
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -202,16 +250,83 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   late final List<_NavItem> _items = [
-    _NavItem('Home', Icons.home_outlined, (a, open, t) => HomeScreen(api: a, open: open)),
-    _NavItem('Sources', Icons.cable_outlined, (a, open, t) => SourcesScreen(api: a, open: open)),
-    _NavItem('Estate map', Icons.hub_outlined, (a, open, t) => GraphScreen(api: a, open: open)),
-    _NavItem('API', Icons.api_outlined, (a, open, t) => ApiHubScreen(
+    _NavItem('Home', 'Home', Icons.home_outlined,
+        (a, open, t) => HomeScreen(api: a, open: open)),
+    _NavItem('Sources', 'Sources', Icons.cable_outlined,
+        (a, open, t) => SourcesScreen(api: a, open: open)),
+    _NavItem('Estate map', 'Map', Icons.hub_outlined,
+        (a, open, t) => GraphScreen(api: a, open: open)),
+    _NavItem('API hub', 'API', Icons.api_outlined, (a, open, t) => ApiHubScreen(
         key: ValueKey('hub:${t?.api}'), api: a, open: open, initialApi: t?.api)),
-    _NavItem('Changelog', Icons.history_edu_outlined, (a, open, t) => ChangelogScreen(api: a)),
+    _NavItem('Changelog', 'Changes', Icons.history_edu_outlined,
+        (a, open, t) => ChangelogScreen(api: a)),
   ];
+
+  // Below this width the rail plus a screen's own two-column content stops fitting, so navigation
+  // moves to a bottom bar and the rail's utilities move into a top bar.
+  static const double _compactBreakpoint = 840;
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < _compactBreakpoint
+          ? _compactShell(context)
+          : _railShell(context),
+    );
+  }
+
+  Widget _compactShell(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 12,
+        backgroundColor: scheme.surface,
+        title: Row(children: [
+          Icon(Icons.shield_outlined, color: scheme.primary, size: 22),
+          const SizedBox(width: 8),
+          Text('Wakegraph',
+              style: TextStyle(fontWeight: FontWeight.w800, color: scheme.primary, fontSize: 16)),
+        ]),
+        actions: [
+          IconButton(
+            onPressed: _search,
+            icon: const Icon(Icons.search),
+            tooltip: 'Search APIs (Ctrl/Cmd-K)',
+          ),
+          IconButton(
+            onPressed: _serverKeyDialog,
+            icon: Icon(Icons.key_outlined,
+                color: ApiClient.apiKey == null ? null : scheme.primary),
+            tooltip: 'Server access (API key)',
+          ),
+          if (widget.theme != null)
+            IconButton(
+              onPressed: () => widget.theme!.cycle(),
+              icon: Icon(widget.theme!.icon),
+              tooltip: widget.theme!.label,
+            ),
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(child: _ServerStatus(api: api)),
+          ),
+        ],
+      ),
+      body: _animatedPage(context),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: _go,
+        height: 64,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: _items
+            .map((it) => NavigationDestination(
+                icon: Icon(it.icon), label: it.shortLabel, tooltip: it.label))
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _railShell(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: Row(
@@ -260,6 +375,13 @@ class _HomeShellState extends State<HomeShell> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if (widget.theme != null)
+                                IconButton(
+                                  onPressed: () => widget.theme!.cycle(),
+                                  icon: Icon(widget.theme!.icon, size: 18),
+                                  tooltip: widget.theme!.label,
+                                  visualDensity: VisualDensity.compact,
+                                ),
                               IconButton(
                                 onPressed: () => showShortcutsHelp(context),
                                 icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
@@ -314,9 +436,10 @@ class _HomeShellState extends State<HomeShell> {
 
 class _NavItem {
   final String label;
+  final String shortLabel;
   final IconData icon;
   final Widget Function(ApiClient api, OpenFn open, NavTarget? target) build;
-  _NavItem(this.label, this.icon, this.build);
+  _NavItem(this.label, this.shortLabel, this.icon, this.build);
 }
 
 /// Small liveness indicator pinned to the bottom of the nav rail: a coloured

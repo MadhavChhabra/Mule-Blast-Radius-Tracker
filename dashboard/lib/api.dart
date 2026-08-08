@@ -1,19 +1,29 @@
+import 'dart:async';
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 final String apiBase = _resolveApiBase();
 
+/// A release bundle is always served by the Wakegraph server itself, so it talks to its own origin
+/// — whatever port, hostname or reverse proxy it sits behind. Only `flutter run -d chrome`, which
+/// serves a debug build from a throwaway port with no API on it, needs the localhost fallback.
 String _resolveApiBase() {
   const override = String.fromEnvironment('APIGUARD_API');
   if (override.isNotEmpty) return override;
+  const released = bool.fromEnvironment('dart.vm.product');
+  if (!released) return 'http://localhost:8080';
   try {
     final here = Uri.base;
-    if ((here.scheme == 'http' || here.scheme == 'https') && here.port == 8080) {
-      return '';
-    }
-  } catch (_) {}
-  return 'http://localhost:8080';
+    if (here.scheme != 'http' && here.scheme != 'https') return 'http://localhost:8080';
+  } catch (_) {
+    return 'http://localhost:8080';
+  }
+  return '';
 }
+
+const Duration _requestTimeout = Duration(seconds: 30);
+const Duration _uploadTimeout = Duration(seconds: 60);
 
 class ApiClient {
   final http.Client _http;
@@ -119,9 +129,10 @@ class ApiClient {
   }
 
   Future<LatestSpec?> latestSpec(String api) async {
-    final resp = await _http.get(
-        Uri.parse('$apiBase/api/apis/${Uri.encodeComponent(api)}/spec/latest'),
-        headers: _headers());
+    final resp = await _guard(
+        () => _http.get(Uri.parse('$apiBase/api/apis/${Uri.encodeComponent(api)}/spec/latest'),
+            headers: _headers()),
+        _requestTimeout);
     if (resp.statusCode == 204 || resp.statusCode >= 400) return null;
     final j = jsonDecode(utf8.decode(resp.bodyBytes));
     final spec = (j['spec'] ?? '').toString();
@@ -188,8 +199,10 @@ class ApiClient {
 
   Future<ExtractedSpec> extractSpecFromZip(List<int> bytes, String filename) async {
     final req = http.MultipartRequest('POST', Uri.parse('$apiBase/api/spec/from-zip'));
+    req.headers.addAll(_headers());
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final resp = await http.Response.fromStream(await _http.send(req));
+    final resp = await _guard(
+        () async => http.Response.fromStream(await _http.send(req)), _uploadTimeout);
     if (resp.statusCode >= 400) {
       throw Exception(_extractError(resp.body, resp.statusCode));
     }
@@ -198,31 +211,52 @@ class ApiClient {
   }
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    final resp = await _http.post(Uri.parse('$apiBase$path'),
-        headers: _headers({'Content-Type': 'application/json'}), body: jsonEncode(body));
+    final resp = await _guard(
+        () => _http.post(Uri.parse('$apiBase$path'),
+            headers: _headers({'Content-Type': 'application/json'}), body: jsonEncode(body)),
+        _requestTimeout);
     if (resp.statusCode >= 400) {
       throw Exception(_extractError(resp.body, resp.statusCode));
     }
     return jsonDecode(utf8.decode(resp.bodyBytes));
   }
 
+  Future<dynamic> _get(String path) async {
+    final resp = await _guard(
+        () => _http.get(Uri.parse('$apiBase$path'), headers: _headers()), _requestTimeout);
+    if (resp.statusCode >= 400) {
+      throw Exception(_extractError(resp.body, resp.statusCode));
+    }
+    return jsonDecode(utf8.decode(resp.bodyBytes));
+  }
+
+  /// A hung or unreachable server must surface as a real error the screens can show and retry,
+  /// not as a spinner that never resolves.
+  Future<http.Response> _guard(Future<http.Response> Function() send, Duration timeout) async {
+    try {
+      return await send().timeout(timeout);
+    } on TimeoutException {
+      throw Exception('The Wakegraph server did not respond within '
+          '${timeout.inSeconds}s. It may be busy syncing, or unreachable.');
+    } on http.ClientException catch (e) {
+      throw Exception('Could not reach the Wakegraph server at '
+          '${apiBase.isEmpty ? "this address" : apiBase}. ${e.message}');
+    }
+  }
+
   String _extractError(String body, int status) {
+    if (status == 401) {
+      return 'This server requires an API key — set it via the key button in the sidebar.';
+    }
     try {
       final j = jsonDecode(body);
       if (j is Map && j['error'] != null) return j['error'].toString();
     } catch (_) {}
+    if (status == 403) return 'Not allowed (403).';
+    if (status == 404) return 'Not found (404).';
+    if (status == 429) return 'The server is rate-limiting requests (429). Try again shortly.';
+    if (status >= 500) return 'The Wakegraph server hit an error ($status). Check its logs.';
     return 'Request failed ($status)';
-  }
-
-  Future<dynamic> _get(String path) async {
-    final resp = await _http.get(Uri.parse('$apiBase$path'), headers: _headers());
-    if (resp.statusCode == 401) {
-      throw Exception('This server requires an API key — set it via the key button in the sidebar.');
-    }
-    if (resp.statusCode >= 400) {
-      throw Exception('GET $path failed: ${resp.statusCode} ${resp.body}');
-    }
-    return jsonDecode(utf8.decode(resp.bodyBytes));
   }
 }
 
@@ -260,12 +294,15 @@ class ConsumerDto {
   final String consumer;
   final String? ownerTeam, slackChannel, sourceRepo, matchedField;
   final List<String> reviewers;
+
+  /// False when this consumer matched only because we have no field-level data for it.
+  final bool fieldConfirmed;
   ConsumerDto(this.consumer, this.ownerTeam, this.reviewers, this.slackChannel,
-      this.sourceRepo, this.matchedField);
+      this.sourceRepo, this.matchedField, this.fieldConfirmed);
   factory ConsumerDto.fromJson(Map<String, dynamic> j) => ConsumerDto(
       j['consumer'], j['ownerTeam'],
       (j['reviewers'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      j['slackChannel'], j['sourceRepo'], j['matchedField']);
+      j['slackChannel'], j['sourceRepo'], j['matchedField'], j['fieldConfirmed'] != false);
 }
 
 class UpstreamDto {
@@ -328,12 +365,16 @@ class EndpointInspect {
 
 class PropagationField {
   final String endpoint, field;
-  final int consumerCount;
+  final int consumerCount, confirmedCount;
   final List<ConsumerDto> downstream;
   final List<UpstreamDto> upstream;
-  PropagationField(this.endpoint, this.field, this.consumerCount, this.downstream, this.upstream);
+  PropagationField(this.endpoint, this.field, this.consumerCount, this.confirmedCount,
+      this.downstream, this.upstream);
+
+  /// Consumers matched without field-level evidence — reported, but not proven readers.
+  int get unknownCount => consumerCount - confirmedCount;
   factory PropagationField.fromJson(Map<String, dynamic> j) => PropagationField(
-      j['endpoint'], j['field'], j['consumerCount'] ?? 0,
+      j['endpoint'], j['field'], j['consumerCount'] ?? 0, j['confirmedCount'] ?? 0,
       (j['downstream'] as List?)?.map((e) => ConsumerDto.fromJson(e)).toList() ?? [],
       (j['upstream'] as List?)?.map((e) => UpstreamDto.fromJson(e)).toList() ?? []);
 }
@@ -341,13 +382,15 @@ class PropagationField {
 class PropagationResult {
   final String api;
   final String? title, version;
-  final int endpoints, fields, impactedFields, impactedConsumers;
+  final int endpoints, fields, impactedFields, impactedConsumers, unknownConsumers;
   final List<PropagationField> items;
   PropagationResult(this.api, this.title, this.version, this.endpoints, this.fields,
-      this.impactedFields, this.impactedConsumers, this.items);
+      this.impactedFields, this.impactedConsumers, this.unknownConsumers, this.items);
+  int get confirmedFields => items.where((f) => f.confirmedCount > 0).length;
   factory PropagationResult.fromJson(Map<String, dynamic> j) => PropagationResult(
       j['api'] ?? '', j['title'], j['version'],
       j['endpoints'] ?? 0, j['fields'] ?? 0, j['impactedFields'] ?? 0, j['impactedConsumers'] ?? 0,
+      j['unknownConsumers'] ?? 0,
       (j['items'] as List?)?.map((e) => PropagationField.fromJson(e)).toList() ?? []);
 }
 
@@ -368,19 +411,37 @@ class GraphNode {
 class GraphEdge {
   final String from, to, label, risk;
   final List<String> via;
-  GraphEdge(this.from, this.to, this.label, this.risk, this.via);
+
+  /// Whether this dependency is known per-endpoint / per-field, or only app-to-app.
+  final bool endpointLevel, fieldLevel;
+  GraphEdge(this.from, this.to, this.label, this.risk, this.via,
+      this.endpointLevel, this.fieldLevel);
   factory GraphEdge.fromJson(Map<String, dynamic> j) => GraphEdge(
       j['from'], j['to'], j['label'] ?? '', j['risk'] ?? 'none',
-      (j['via'] as List?)?.map((e) => e.toString()).toList() ?? const []);
+      (j['via'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      j['endpointLevel'] == true, j['fieldLevel'] == true);
+}
+
+class GraphCoverage {
+  final int dependencies, endpointLevel, fieldLevel;
+  const GraphCoverage(this.dependencies, this.endpointLevel, this.fieldLevel);
+  bool get isComplete => dependencies > 0 && endpointLevel == dependencies;
+  int get shallow => dependencies - endpointLevel;
+  double get ratio => dependencies == 0 ? 0 : endpointLevel / dependencies;
+  factory GraphCoverage.fromJson(Map<String, dynamic>? j) => j == null
+      ? const GraphCoverage(0, 0, 0)
+      : GraphCoverage(j['dependencies'] ?? 0, j['endpointLevel'] ?? 0, j['fieldLevel'] ?? 0);
 }
 
 class GraphDto {
   final List<GraphNode> nodes;
   final List<GraphEdge> edges;
-  GraphDto(this.nodes, this.edges);
+  final GraphCoverage coverage;
+  GraphDto(this.nodes, this.edges, this.coverage);
   factory GraphDto.fromJson(Map<String, dynamic> j) => GraphDto(
       (j['nodes'] as List).map((e) => GraphNode.fromJson(e)).toList(),
-      (j['edges'] as List).map((e) => GraphEdge.fromJson(e)).toList());
+      (j['edges'] as List).map((e) => GraphEdge.fromJson(e)).toList(),
+      GraphCoverage.fromJson(j['coverage'] as Map<String, dynamic>?));
 }
 
 class ChangelogEntry {

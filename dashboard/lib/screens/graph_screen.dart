@@ -339,6 +339,13 @@ class _LayeredMapState extends State<_LayeredMap> {
   final _hCtrl = ScrollController();
   Size _viewport = Size.zero;
   int _cullTick = 0;
+  String? _hovered;
+
+  void _setHovered(String? id) {
+    if (_hovered != id && mounted) {
+      setState(() => _hovered = id);
+    }
+  }
 
   @override
   void initState() {
@@ -415,18 +422,39 @@ class _LayeredMapState extends State<_LayeredMap> {
   bool _nodeBreaking(String id) =>
       widget.graph.edges.any((e) => e.risk == 'breaking' && (e.to == id || e.from == id));
 
+  /// Everything reachable from [root] in both directions — the actual blast radius, not just the
+  /// immediate neighbours. Direct neighbours are returned separately so the map can show the
+  /// difference between "you break this" and "this is downwind".
+  (Set<String> direct, Set<String> reachable) _radiusOf(String root) {
+    final direct = <String>{root};
+    for (final e in widget.graph.edges) {
+      if (e.from == root) direct.add(e.to);
+      if (e.to == root) direct.add(e.from);
+    }
+    final reachable = <String>{root};
+    final queue = <String>[root];
+    while (queue.isNotEmpty) {
+      final at = queue.removeLast();
+      for (final e in widget.graph.edges) {
+        if (e.from == at && reachable.add(e.to)) queue.add(e.to);
+        if (e.to == at && reachable.add(e.from)) queue.add(e.from);
+      }
+    }
+    return (direct, reachable);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final focus = _hovered ?? widget.selected;
     final selected = widget.selected;
     final search = widget.search;
     bool matches(GraphNode n) => search.isEmpty || n.label.toLowerCase().contains(search);
-    final connected = <String>{};
-    if (selected != null) {
-      connected.add(selected);
-      for (final e in widget.graph.edges) {
-        if (e.from == selected) connected.add(e.to);
-        if (e.to == selected) connected.add(e.from);
-      }
+    var connected = const <String>{};
+    var direct = const <String>{};
+    if (focus != null) {
+      final radius = _radiusOf(focus);
+      direct = radius.$1;
+      connected = radius.$2;
     }
 
     final children = <Widget>[];
@@ -455,21 +483,32 @@ class _LayeredMapState extends State<_LayeredMap> {
       if (!cardRect.overlaps(visRect)) {
         continue;
       }
-      final dim = (selected != null && !connected.contains(n.id)) || !matches(n);
+      final dim = (focus != null && !connected.contains(n.id)) || !matches(n);
+      // Three states, not two: the focus and what it directly touches read at full strength,
+      // what is only transitively downwind sits between, everything else recedes.
+      final opacity = dim ? 0.22 : (focus == null || direct.contains(n.id) ? 1.0 : 0.62);
       children.add(Positioned(
         left: p.dx,
         top: p.dy,
         width: _LayeredMap.cardW,
         height: _LayeredMap.cardH,
-        child: Opacity(
-          opacity: dim ? 0.28 : 1,
-          child: _NodeCard(
-            node: n,
-            selected: selected == n.id,
-            breaking: _nodeBreaking(n.id),
-            inCycle: widget.overlay.inCycle(n.id),
-            hotspot: widget.overlay.isHotspot(n.id),
-            onTap: () => widget.onSelect(n.id),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => _setHovered(n.id),
+          onExit: (_) => _setHovered(null),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            opacity: opacity,
+            child: _NodeCard(
+              node: n,
+              selected: selected == n.id,
+              traced: focus != null && focus != n.id && connected.contains(n.id),
+              breaking: _nodeBreaking(n.id),
+              inCycle: widget.overlay.inCycle(n.id),
+              hotspot: widget.overlay.isHotspot(n.id),
+              onTap: () => widget.onSelect(n.id),
+            ),
           ),
         ),
       ));
@@ -485,7 +524,7 @@ class _LayeredMapState extends State<_LayeredMap> {
               painter: _EdgePainter(
                 edges: widget.graph.edges,
                 pos: _pos,
-                selected: selected,
+                selected: focus,
                 overlay: widget.overlay,
                 dimColor: Theme.of(context).colorScheme.outlineVariant,
               ),
@@ -566,12 +605,15 @@ class _ZoomControls extends StatelessWidget {
 class _NodeCard extends StatelessWidget {
   final GraphNode node;
   final bool selected;
+
+  /// On the blast path of whatever is focused, but not the focus itself.
+  final bool traced;
   final bool breaking;
   final bool inCycle;
   final bool hotspot;
   final VoidCallback onTap;
   const _NodeCard({required this.node, required this.selected, required this.breaking,
-      this.inCycle = false, this.hotspot = false, required this.onTap});
+      this.traced = false, this.inCycle = false, this.hotspot = false, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -582,12 +624,20 @@ class _NodeCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: scheme.surface,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: selected ? color : color.withOpacity(0.55), width: selected ? 2.4 : 1.2),
-            boxShadow: selected ? [BoxShadow(color: color.withOpacity(0.3), blurRadius: 12)] : null,
+            border: Border.all(
+                color: selected ? color : color.withOpacity(traced ? 0.85 : 0.55),
+                width: selected ? 2.4 : (traced ? 1.8 : 1.2)),
+            boxShadow: selected
+                ? [BoxShadow(color: color.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 2))]
+                : (traced
+                    ? [BoxShadow(color: color.withOpacity(0.16), blurRadius: 8, offset: const Offset(0, 2))]
+                    : null),
           ),
           child: Row(children: [
             Container(width: 5, height: double.infinity,

@@ -94,8 +94,9 @@ cd dashboard && flutter run -d chrome     # dashboard talks to :8080
 
 ### Securing the server (optional)
 
-Set `apiguard.security.api-key` (or env `APIGUARD_API_KEY_SERVER`) and every `/api/*` call must
-send the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`:
+Set `apiguard.security.api-key` (or env `APIGUARD_API_KEY_SERVER`) and every `/api/*` and
+`/actuator/*` call must send the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`
+(health endpoints stay open so container probes keep working):
 
 ```bash
 ./gradlew :server:bootRun --args='--apiguard.security.api-key=my-secret'
@@ -103,14 +104,17 @@ send the key as `X-API-Key: <key>` or `Authorization: Bearer <key>`:
 
 The CLI picks the key up from `--api-key` or `$APIGUARD_API_KEY`; in the dashboard, click the key
 icon in the sidebar (stored only in your browser). Leave the property unset for local use — auth
-is off by default.
+is off by default, and the server logs a warning at startup if it is exposed without one.
 
-### 3. Everything in Docker (Postgres + server + dashboard)
+### 3. Everything in Docker (Postgres + one self-contained app)
+
+The image builds the dashboard and bundles it into the server jar, so a single container serves the
+UI and the API on the same origin — no CORS, no second URL.
 
 ```bash
-cp deploy/.env.example deploy/.env        # optional: add GITHUB_TOKEN / SLACK_WEBHOOK_URL
-docker compose -f deploy/docker-compose.yml up --build
-# Dashboard → http://localhost:8090   API → http://localhost:8080
+cp deploy/.env.example deploy/.env        # set APIGUARD_API_KEY_SERVER, APIGUARD_ENCRYPTION_KEY
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
+# Wakegraph → http://localhost:8080
 ```
 
 ### 4. As a GitHub Action

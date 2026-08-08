@@ -661,7 +661,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
 
   Widget _fields(BuildContext context, PropagationResult r) {
     final shown = _onlyImpacted ? r.items.where((f) => f.consumerCount > 0).toList() : r.items;
-    final risky = r.impactedFields > 0;
+    final confirmed = r.confirmedFields;
+    final risky = confirmed > 0;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Container(
         padding: const EdgeInsets.all(14),
@@ -671,11 +672,15 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
         ),
         child: Text(
           risky
-              ? '${r.impactedFields} of ${r.fields} fields are read by ${r.impactedConsumers} other app(s) — changing those ripples out.'
-              : 'None of the ${r.fields} fields are read by another app we know about — safe to change.',
+              ? '$confirmed of ${r.fields} fields have a proven reader — changing those ripples out.'
+              : 'No app is known to read any of these ${r.fields} fields.',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
+      if (r.unknownConsumers > 0) ...[
+        const SizedBox(height: 8),
+        _UnknownFieldDataNote(consumers: r.unknownConsumers),
+      ],
       Row(children: [
         const Spacer(),
         const Text('Only impacted', style: TextStyle(fontSize: 12)),
@@ -686,24 +691,28 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
             margin: const EdgeInsets.only(bottom: 8),
             child: ExpansionTile(
               leading: Container(width: 8, height: 8, decoration: BoxDecoration(
-                  color: f.consumerCount > 0 ? AppColors.breaking : AppColors.additive, shape: BoxShape.circle)),
+                  color: f.confirmedCount > 0
+                      ? AppColors.breaking
+                      : (f.unknownCount > 0 ? AppColors.warning : AppColors.additive),
+                  shape: BoxShape.circle)),
               title: Row(children: [
                 Text(f.field, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700)),
                 const SizedBox(width: 10),
                 Text(f.endpoint, style: TextStyle(fontSize: 12,
                     color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ]),
-              trailing: Text(f.consumerCount > 0 ? '${f.consumerCount} read it' : 'safe',
-                  style: TextStyle(color: f.consumerCount > 0 ? AppColors.breaking : AppColors.additive,
-                      fontWeight: FontWeight.w700, fontSize: 12)),
+              trailing: _FieldVerdict(field: f),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
                 ...f.downstream.map((c) => ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.south_east, size: 18, color: AppColors.breaking),
+                      leading: Icon(c.fieldConfirmed ? Icons.south_east : Icons.help_outline,
+                          size: 18,
+                          color: c.fieldConfirmed ? AppColors.breaking : AppColors.warning),
                       title: Text(c.consumer),
                       subtitle: Text([
+                        c.fieldConfirmed ? 'reads this field' : 'no field-level data — may or may not read it',
                         if (c.ownerTeam != null) 'team ${c.ownerTeam}',
                         if (c.reviewers.isNotEmpty) 'reviewers ${c.reviewers.map((r) => r.replaceAll('gh:', '')).join(', ')}',
                         if (c.slackChannel != null) 'slack ${c.slackChannel}',
@@ -729,13 +738,87 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
   }
 
   String _plan(String api, PropagationField f) {
-    final b = StringBuffer('Before changing "${f.field}" — $api ${f.endpoint}\n'
-        'These apps read it, so give them a heads-up:\n');
-    for (final c in f.downstream) {
-      b.writeln('  [ ] ${c.consumer} — update to handle "${f.field}" '
-          '(${[if (c.ownerTeam != null) 'team=${c.ownerTeam}', if (c.reviewers.isNotEmpty) 'reviewers=${c.reviewers.join(',')}'].join(' ')})');
+    String who(ConsumerDto c) => [
+          if (c.ownerTeam != null) 'team=${c.ownerTeam}',
+          if (c.reviewers.isNotEmpty) 'reviewers=${c.reviewers.join(',')}',
+        ].join(' ');
+    final b = StringBuffer('Before changing "${f.field}" — $api ${f.endpoint}\n');
+    final confirmed = f.downstream.where((c) => c.fieldConfirmed);
+    final unknown = f.downstream.where((c) => !c.fieldConfirmed);
+    if (confirmed.isNotEmpty) {
+      b.writeln('Reads this field — give them a heads-up:');
+      for (final c in confirmed) {
+        b.writeln('  [ ] ${c.consumer} — update to handle "${f.field}" (${who(c)})');
+      }
+    }
+    if (unknown.isNotEmpty) {
+      b.writeln('Consumes this API, no field-level data — confirm with them:');
+      for (final c in unknown) {
+        b.writeln('  [ ] ${c.consumer} — does it read "${f.field}"? (${who(c)})');
+      }
     }
     return b.toString();
+  }
+}
+
+/// The verdict a developer acts on: a proven reader is a blocker, a consumer with no field-level
+/// data is a question to ask, and neither is safe to show as the same number.
+class _FieldVerdict extends StatelessWidget {
+  final PropagationField field;
+  const _FieldVerdict({required this.field});
+
+  @override
+  Widget build(BuildContext context) {
+    if (field.confirmedCount == 0 && field.unknownCount == 0) {
+      return const Text('safe',
+          style: TextStyle(color: AppColors.additive, fontWeight: FontWeight.w700, fontSize: 12));
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (field.confirmedCount > 0)
+        Text('${field.confirmedCount} read it',
+            style: const TextStyle(
+                color: AppColors.breaking, fontWeight: FontWeight.w700, fontSize: 12)),
+      if (field.confirmedCount > 0 && field.unknownCount > 0)
+        Text('  ·  ',
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      if (field.unknownCount > 0)
+        Tooltip(
+          message: 'Consumers of this API with no field-level data. Register their repos to '
+              'turn this into a yes or no.',
+          child: Text('${field.unknownCount} unknown',
+              style: const TextStyle(
+                  color: AppColors.warning, fontWeight: FontWeight.w700, fontSize: 12)),
+        ),
+    ]);
+  }
+}
+
+class _UnknownFieldDataNote extends StatelessWidget {
+  final int consumers;
+  const _UnknownFieldDataNote({required this.consumers});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withOpacity(0.09),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withOpacity(0.3)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.help_outline, size: 18, color: AppColors.warning),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            '$consumers consumer(s) have no field-level data — they were found through an Anypoint '
+            'contract or a flow with no DataWeave, so every field counts as "maybe". Register their '
+            'repos in Sources to replace the guess with an answer.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ]),
+    );
   }
 }
 

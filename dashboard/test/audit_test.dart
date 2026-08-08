@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:apiguard_dashboard/api.dart';
-import 'package:apiguard_dashboard/main.dart';
 import 'package:apiguard_dashboard/screens/sources_screen.dart';
 
 import 'support/fake_api.dart';

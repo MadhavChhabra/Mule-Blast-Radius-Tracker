@@ -43,6 +43,16 @@ void onHashChange(void Function(String hash) callback) {
   html.window.onHashChange.listen((_) => callback(html.window.location.hash));
 }
 
+String? loadStoredSetting(String key) => html.window.localStorage['apiguard.$key'];
+
+void storeSetting(String key, String? value) {
+  if (value == null || value.isEmpty) {
+    html.window.localStorage.remove('apiguard.$key');
+  } else {
+    html.window.localStorage['apiguard.$key'] = value;
+  }
+}
+
 String? loadStoredApiKey() => html.window.localStorage['apiguard.apiKey'];
 
 void storeApiKey(String? key) {

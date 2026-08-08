@@ -327,7 +327,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('Repos', style: TextStyle(fontWeight: FontWeight.w800)),
                 Text('A repo URL, a whole GitHub org / Bitbucket workspace URL, or a local path. '
-                    'Org URLs expand to every repo on sync. Flows + property files give per-endpoint detail.',
+                    'Org URLs expand to every repo on sync. Flows + property files give per-endpoint detail. '
+                    'A token in the URL is encrypted and kept server-side — the URL is stored and shown without it.',
                     style: TextStyle(fontSize: 12)),
               ]),
             ),
@@ -468,7 +469,8 @@ class _AnypointDialogState extends State<_AnypointDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(
             'Create a Connected App (app acts on its own behalf) with read scopes for Exchange Viewer '
-            'and API Manager. The secret is held only in server memory — never persisted or echoed.',
+            'and API Manager. The secret is encrypted and saved on this server, so you connect once and '
+            'it is restored on the next restart — it is never echoed back.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
