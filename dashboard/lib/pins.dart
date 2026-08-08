@@ -73,20 +73,27 @@ class FocusState extends ChangeNotifier {
   int _hops = 0;
   int _nodes = 0;
 
+  /// 0 downstream · 1 upstream · 2 both. Kept as an index so this file stays free of screen
+  /// imports while still driving the bar's segmented control.
+  int _direction = 0;
+
   String? get api => _api;
   int get hops => _hops;
   int get nodes => _nodes;
+  int get direction => _direction;
   bool get active => _api != null;
 
-  void set(String? api, {int hops = 0, int nodes = 0}) {
-    if (_api == api && _hops == hops && _nodes == nodes) return;
+  void set(String? api, {int hops = 0, int nodes = 0, int direction = 0}) {
+    if (_api == api && _hops == hops && _nodes == nodes && _direction == direction) return;
     _api = api;
     _hops = hops;
     _nodes = nodes;
+    _direction = direction;
     notifyListeners();
   }
 
-  /// Callbacks the bar invokes; owned by the canvas because it holds the direction state.
+  /// Callbacks the bar invokes; owned by the canvas, which holds the real state.
   VoidCallback? onClose;
   VoidCallback? onOpenHub;
+  ValueChanged<int>? onDirection;
 }

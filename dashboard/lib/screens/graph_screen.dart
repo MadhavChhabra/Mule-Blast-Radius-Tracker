@@ -392,7 +392,11 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
       final focus = FocusState.instance;
       focus.onClose = () => widget.onFocus(null);
       focus.onOpenHub = () => widget.open?.call(Tabs.apiHub, api: widget.focused);
-      focus.set(widget.focused, hops: pathEdges.length, nodes: onPath.length);
+      focus.onDirection = (i) => widget.onDirection(FocusDirection.values[i]);
+      focus.set(widget.focused,
+          hops: pathEdges.length,
+          nodes: onPath.length,
+          direction: widget.direction.index);
     });
 
     final canvasW = _Layout.totalWidth();

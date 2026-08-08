@@ -631,52 +631,104 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
               future: _result!, onRetry: _run, builder: (context, r) => _fields(context, r)),
       ];
 
+  /// The comp's input card: two spec wells side by side with an arrow between them, the baseline
+  /// label on the right, then Analyze and a single mono hint line for the other ways to load.
   List<Widget> _versionDiffBody(BuildContext context) => [
-        Text('Paste the before and after of this API\'s spec. You\'ll get: what breaks, how to ship it '
-            'safely, the version bump to use, the deployment risk, who\'s affected, and a ready changelog.',
-            style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: _busy ? null : _analyze,
-          icon: _busy
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.play_arrow),
-          label: const Text('Analyze'),
+        SolidPanel(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Text('BEFORE  →  AFTER', style: monoLabel()),
+              const Spacer(),
+              if (_latest != null)
+                Text('baseline $_baselineLabel', style: monoData(size: 11)),
+            ]),
+            const SizedBox(height: 12),
+            LayoutBuilder(builder: (context, c) {
+              final before = _specWell('Before', _oldSpec, baseline: true);
+              final after = _specWell('After', _newSpec);
+              if (c.maxWidth < 560) {
+                return Column(children: [
+                  before,
+                  const SizedBox(height: 10),
+                  after,
+                ]);
+              }
+              return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                Expanded(child: before),
+                const SizedBox(
+                  width: 26,
+                  child: Center(
+                    child: Icon(Icons.arrow_forward, size: 18, color: AppColors.textGhost),
+                  ),
+                ),
+                Expanded(child: after),
+              ]);
+            }),
+            const SizedBox(height: 12),
+            Row(children: [
+              FilledButton.icon(
+                onPressed: _busy ? null : _analyze,
+                icon: _busy
+                    ? const SizedBox(
+                        width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.bolt, size: 16),
+                label: const Text('Analyze'),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text('or drop a spec file · RAML zip · load from repo',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: monoData(size: 11)),
+              ),
+            ]),
+          ]),
         ),
-        const SizedBox(height: 8),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: _specBox('Before (baseline)', _oldSpec, baseline: true)),
-          const SizedBox(width: 12),
-          Expanded(child: _specBox('After (your change)', _newSpec)),
-        ]),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         if (_analysis != null)
           AsyncView<AnalyzeResult>(
               future: _analysis!, onRetry: _analyze, builder: (context, r) => _diff(context, r)),
       ];
 
-  Widget _specBox(String label, TextEditingController c, {bool baseline = false}) => Column(
+  /// A 104px mono well, per the comp — an inset code surface rather than a form field.
+  Widget _specWell(String label, TextEditingController c, {bool baseline = false}) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+            Text(label.toUpperCase(), style: monoData(size: 10)),
+            const Spacer(),
             if (baseline && _latest != null)
               _loaderBtn(Icons.history, 'Load recorded version ($_baselineLabel)',
                   _busy ? null : () => _loadBaselineInto(c)),
-            _loaderBtn(Icons.folder_zip_outlined, 'Load a RAML zip', _busy ? null : () => _loadZipInto(c)),
-            _loaderBtn(Icons.upload_file, 'Load a spec file', _busy ? null : () => _loadFileInto(c)),
+            _loaderBtn(Icons.folder_zip_outlined, 'Load a RAML zip',
+                _busy ? null : () => _loadZipInto(c)),
+            _loaderBtn(Icons.upload_file, 'Load a spec file',
+                _busy ? null : () => _loadFileInto(c)),
           ]),
-          const SizedBox(height: 4),
-          SizedBox(
-            height: 200,
+          const SizedBox(height: 6),
+          Container(
+            height: 104,
+            decoration: BoxDecoration(
+              color: AppColors.bar,
+              borderRadius: BorderRadius.circular(AppRadius.field),
+              border: Border.all(color: AppColors.hairline),
+            ),
             child: TextField(
               controller: c,
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true,
-                  hintText: 'Paste RAML or OpenAPI, or use the icons above'),
+              style: const TextStyle(
+                  fontFamily: kMono, fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
+              decoration: InputDecoration(
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                hintText: baseline ? 'paste or load the current spec' : 'paste your changed spec',
+                hintStyle: monoData(size: 11.5, color: AppColors.textGhost),
+              ),
             ),
           ),
         ],

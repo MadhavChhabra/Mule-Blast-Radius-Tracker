@@ -244,6 +244,8 @@ class _HomeShellState extends State<HomeShell> {
                       api: FocusState.instance.api!,
                       hops: FocusState.instance.hops,
                       nodes: FocusState.instance.nodes,
+                      direction: FocusDirection.values[FocusState.instance.direction],
+                      onDirection: (d) => FocusState.instance.onDirection?.call(d.index),
                       onClose: () => FocusState.instance.onClose?.call(),
                       onHub: () => FocusState.instance.onOpenHub?.call(),
                     )
