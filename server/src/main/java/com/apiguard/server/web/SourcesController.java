@@ -2,8 +2,10 @@ package com.apiguard.server.web;
 
 import com.apiguard.server.anypoint.AnypointCredentials;
 import com.apiguard.server.service.AuditService;
+import com.apiguard.server.service.CredentialStore;
 import com.apiguard.server.service.SourcesService;
 import com.apiguard.server.service.SyncJobService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,13 +17,15 @@ public class SourcesController {
 
     private final SourcesService sources;
     private final AnypointCredentials creds;
+    private final CredentialStore credentialStore;
     private final SyncJobService syncJob;
     private final AuditService audit;
 
-    public SourcesController(SourcesService sources, AnypointCredentials creds, SyncJobService syncJob,
-                             AuditService audit) {
+    public SourcesController(SourcesService sources, AnypointCredentials creds, CredentialStore credentialStore,
+                             SyncJobService syncJob, AuditService audit) {
         this.sources = sources;
         this.creds = creds;
+        this.credentialStore = credentialStore;
         this.syncJob = syncJob;
         this.audit = audit;
     }
@@ -39,8 +43,9 @@ public class SourcesController {
     }
 
     @PostMapping("/api/sources/anypoint")
-    public SourcesService.Status configureAnypoint(@RequestBody AnypointConfigRequest req) {
+    public SourcesService.Status configureAnypoint(@Valid @RequestBody AnypointConfigRequest req) {
         creds.update(req.clientId(), req.clientSecret(), req.orgId(), req.environment());
+        credentialStore.saveAnypoint(req.clientId(), req.clientSecret(), req.orgId(), req.environment());
         audit.record("anypoint.configure", req.orgId(),
                 "env=" + req.environment() + " clientId=" + req.clientId());
         return sources.status();
@@ -49,21 +54,22 @@ public class SourcesController {
     @PostMapping("/api/sources/anypoint/disconnect")
     public SourcesService.Status disconnectAnypoint() {
         creds.clear();
+        credentialStore.clearAnypoint();
         audit.record("anypoint.disconnect", null, null);
         return sources.status();
     }
 
     @PostMapping("/api/sources/repos")
-    public SourcesService.Status addRepo(@RequestBody RepoRequest req) {
+    public SourcesService.Status addRepo(@Valid @RequestBody RepoRequest req) {
         SourcesService.Status status = sources.addRepo(req.url());
-        audit.record("sources.repo.add", req.url(), null);
+        audit.record("sources.repo.add", SourcesService.stripUserInfo(req.url()), null);
         return status;
     }
 
     @PostMapping("/api/sources/repos/remove")
-    public SourcesService.Status removeRepo(@RequestBody RepoRequest req) {
+    public SourcesService.Status removeRepo(@Valid @RequestBody RepoRequest req) {
         SourcesService.Status status = sources.removeRepo(req.url());
-        audit.record("sources.repo.remove", req.url(), null);
+        audit.record("sources.repo.remove", SourcesService.stripUserInfo(req.url()), null);
         return status;
     }
 

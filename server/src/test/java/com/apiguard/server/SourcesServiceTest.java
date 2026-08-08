@@ -33,6 +33,28 @@ class SourcesServiceTest {
     }
 
     @Test
+    void aTokenInTheRepoUrlIsStoredEncryptedAndNeverReturned() {
+
+        String withToken = "https://ghp_secrettoken123@github.com/acme/private-repo.git";
+        var status = sources.addRepo(withToken);
+
+        String clean = "https://github.com/acme/private-repo.git";
+        assertTrue(status.repos().contains(clean), status.repos().toString());
+        assertTrue(status.repos().stream().noneMatch(r -> r.contains("ghp_secrettoken123")),
+                "the token must never come back over the API: " + status.repos());
+
+        var stored = repoRepository.findByUrl(clean).orElseThrow();
+        assertTrue(stored.getUrl().equals(clean), stored.getUrl());
+        org.junit.jupiter.api.Assertions.assertNotNull(stored.getCredential());
+        assertTrue(!stored.getCredential().contains("ghp_secrettoken123"),
+                "the credential column must be encrypted, not plaintext");
+
+        // Removing by the clean URL (the only one the user can see) must work.
+        sources.removeRepo(clean);
+        assertTrue(repoRepository.findByUrl(clean).isEmpty());
+    }
+
+    @Test
     void duplicateRepoUrlsNormalizeToTheSameKey() {
 
         String viaOrg = SourcesService.normalizeRepoUrl("https://github.com/Acme/Orders-Exp-API.git");

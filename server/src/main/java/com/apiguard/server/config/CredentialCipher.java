@@ -1,5 +1,7 @@
 package com.apiguard.server.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -7,12 +9,18 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Set;
 
 @Component
 public class CredentialCipher {
+
+    private static final Logger log = LoggerFactory.getLogger(CredentialCipher.class);
 
     private static final String TRANSFORM = "AES/GCM/NoPadding";
     private static final int IV_BYTES = 12;
@@ -23,8 +31,50 @@ public class CredentialCipher {
     private final SecureRandom rng = new SecureRandom();
 
     public CredentialCipher(
-            @Value("${apiguard.security.encryption-key:${APIGUARD_ENCRYPTION_KEY:}}") String rawKey) {
-        this.key = deriveKey(rawKey);
+            @Value("${apiguard.security.encryption-key:${APIGUARD_ENCRYPTION_KEY:}}") String rawKey,
+            @Value("${apiguard.security.key-file:${user.home}/.apiguard/credential.key}") String keyFile) {
+        this.key = resolveKey(rawKey, keyFile);
+    }
+
+    private static SecretKeySpec resolveKey(String rawKey, String keyFile) {
+        if (rawKey != null && !rawKey.isBlank()) {
+            return deriveKey(rawKey);
+        }
+        if (keyFile == null || keyFile.isBlank()) {
+            return null;
+        }
+        return deriveKey(loadOrCreateKeyFile(keyFile));
+    }
+
+    private static String loadOrCreateKeyFile(String keyFile) {
+        try {
+            Path kf = Path.of(keyFile);
+            if (Files.isRegularFile(kf)) {
+                String material = Files.readString(kf, StandardCharsets.UTF_8).trim();
+                return material.isBlank() ? null : material;
+            }
+            byte[] rnd = new byte[32];
+            new SecureRandom().nextBytes(rnd);
+            String material = Base64.getEncoder().encodeToString(rnd);
+            if (kf.getParent() != null) {
+                Files.createDirectories(kf.getParent());
+            }
+            Files.writeString(kf, material, StandardCharsets.UTF_8);
+            restrict(kf);
+            log.info("Generated a local credential encryption key at {} (keep it safe — it protects your saved secrets).", kf);
+            return material;
+        } catch (Exception e) {
+            log.warn("Could not manage a local encryption key file ({}); saved credentials will be disabled.", e.getMessage());
+            return null;
+        }
+    }
+
+    private static void restrict(Path file) {
+        try {
+            Files.setPosixFilePermissions(file, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+        } catch (Exception ignored) {
+            // Non-POSIX (Windows) — the file inherits the user's home-dir ACL, which is already user-scoped.
+        }
     }
 
     public boolean isConfigured() {

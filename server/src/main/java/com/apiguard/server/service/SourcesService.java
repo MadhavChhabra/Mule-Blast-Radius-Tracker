@@ -35,10 +35,13 @@ public class SourcesService {
     private final AnypointSyncService anypointSync;
     private final AnypointCredentials creds;
     private final ScmOrgService scmOrg;
+    private final RepoFetchService repoFetch;
+    private final com.apiguard.server.config.CredentialCipher cipher;
     private final int scanParallelism;
 
     public SourcesService(ScanSourceRepository repos, ScanService scanService, AnypointClient anypointClient,
                           AnypointSyncService anypointSync, AnypointCredentials creds, ScmOrgService scmOrg,
+                          RepoFetchService repoFetch, com.apiguard.server.config.CredentialCipher cipher,
                           @Value("${apiguard.scan.parallelism:6}") int scanParallelism) {
         this.repos = repos;
         this.scanService = scanService;
@@ -46,6 +49,8 @@ public class SourcesService {
         this.anypointSync = anypointSync;
         this.creds = creds;
         this.scmOrg = scmOrg;
+        this.repoFetch = repoFetch;
+        this.cipher = cipher;
         this.scanParallelism = scanParallelism;
     }
 
@@ -84,19 +89,89 @@ public class SourcesService {
     }
 
     public Status addRepo(String url) {
-        String clean = url == null ? "" : url.trim();
-        if (clean.isEmpty()) {
+        String given = url == null ? "" : url.trim();
+        if (given.isEmpty()) {
             throw new IllegalArgumentException("Repo URL / path is required.");
         }
-        if (!repos.existsByUrl(clean)) {
-            repos.save(new ScanSourceEntity(clean));
+        repoFetch.validateSource(given);
+        String clean = stripUserInfo(given);
+        String userInfo = userInfoOf(given);
+        if (userInfo != null && !cipher.isConfigured()) {
+            throw new IllegalArgumentException(
+                    "This repo URL carries a token, but no encryption key is available to store it safely. "
+                            + "Set APIGUARD_ENCRYPTION_KEY, or register the repo without the token.");
+        }
+        ScanSourceEntity existing = repos.findByUrl(clean).orElse(null);
+        if (existing == null) {
+            repos.save(new ScanSourceEntity(clean, userInfo == null ? null : cipher.encrypt(userInfo)));
+        } else if (userInfo != null) {
+            existing.setCredential(cipher.encrypt(userInfo));
+            repos.save(existing);
         }
         return status();
     }
 
     public Status removeRepo(String url) {
-        repos.findByUrl(url == null ? "" : url.trim()).ifPresent(repos::delete);
+        repos.findByUrl(stripUserInfo(url == null ? "" : url.trim())).ifPresent(repos::delete);
         return status();
+    }
+
+    // A token pasted into the URL is the documented way to reach a private repo, so it must be
+    // accepted — but it is a credential, and it never belongs in the URL we store, return or log.
+    public static String stripUserInfo(String url) {
+        return url == null ? "" : url.replaceFirst("^(https?://)[^@/]+@", "$1");
+    }
+
+    static String userInfoOf(String url) {
+        if (url == null) {
+            return null;
+        }
+        var m = java.util.regex.Pattern.compile("^https?://([^@/]+)@").matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String withUserInfo(String url, String userInfo) {
+        return userInfo == null || userInfo.isBlank()
+                ? url
+                : url.replaceFirst("^(https?://)", "$1" + java.util.regex.Matcher.quoteReplacement(userInfo) + "@");
+    }
+
+    /// The URL actually handed to git / the SCM API, with any stored credential re-attached.
+    private String scanUrlOf(ScanSourceEntity source) {
+        String credential = source.getCredential();
+        if (credential == null || credential.isBlank()) {
+            return source.getUrl();
+        }
+        try {
+            return withUserInfo(source.getUrl(), cipher.decrypt(credential));
+        } catch (RuntimeException e) {
+            log.warn("Stored credential for {} could not be decrypted (encryption key changed?) — "
+                    + "re-add the repo with its token.", source.getUrl());
+            return source.getUrl();
+        }
+    }
+
+    /// Splits credentials out of rows written before the credential column existed, so no plaintext
+    /// token survives a restart. Idempotent — rows already clean are untouched.
+    @org.springframework.context.event.EventListener(
+            org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    @org.springframework.transaction.annotation.Transactional
+    public void migrateStoredCredentials() {
+        int moved = 0;
+        for (ScanSourceEntity source : repos.findAll()) {
+            String userInfo = userInfoOf(source.getUrl());
+            if (userInfo == null) {
+                continue;
+            }
+            source.setUrl(stripUserInfo(source.getUrl()));
+            source.setCredential(cipher.isConfigured() ? cipher.encrypt(userInfo) : null);
+            repos.save(source);
+            moved++;
+        }
+        if (moved > 0) {
+            log.info("Moved {} repo credential(s) out of the stored URL{}.", moved,
+                    cipher.isConfigured() ? " and encrypted them" : " (no encryption key — re-add the token)");
+        }
     }
 
     public SyncAllResult syncAll() {
@@ -122,13 +197,16 @@ public class SourcesService {
         List<ScanTask> tasks = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         int duplicates = 0;
-        for (String url : repoUrls()) {
+        for (ScanSourceEntity source : repos.findAll()) {
             if (listener.isCancelled()) {
                 break;
             }
-            var org = scmOrg.parse(url);
+            // Displayed rows stay credential-free; only the scan URL carries the token.
+            String url = source.getUrl();
+            String scanUrl = scanUrlOf(source);
+            var org = scmOrg.parse(scanUrl);
             if (org.isEmpty()) {
-                duplicates += addTask(tasks, seen, url, url) ? 0 : 1;
+                duplicates += addTask(tasks, seen, url, scanUrl) ? 0 : 1;
                 continue;
             }
             List<ScmOrgService.RepoRef> orgRepos;

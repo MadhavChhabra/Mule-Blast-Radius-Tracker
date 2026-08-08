@@ -20,6 +20,11 @@ public class ScanSourceEntity {
     @Column(nullable = false, unique = true, length = 1024)
     private String url;
 
+    /// Encrypted userinfo (a PAT / app password) for a private repo. Never leaves the server:
+    /// it is re-attached to the URL only when cloning or listing an org.
+    @Column(length = 2048)
+    private String credential;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -30,12 +35,29 @@ public class ScanSourceEntity {
         this.url = url;
     }
 
+    public ScanSourceEntity(String url, String credential) {
+        this.url = url;
+        this.credential = credential;
+    }
+
     public Long getId() {
         return id;
     }
 
     public String getUrl() {
         return url;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
+    }
+
+    public String getCredential() {
+        return credential;
+    }
+
+    public void setCredential(String credential) {
+        this.credential = credential;
     }
 
     public Instant getCreatedAt() {

@@ -14,7 +14,7 @@ class CredentialCipherTest {
 
     @Test
     void roundTripEncryptsThenDecrypts() {
-        CredentialCipher c = new CredentialCipher("test-key-please-change");
+        CredentialCipher c = new CredentialCipher("test-key-please-change", "");
         String secret = "client-secret-42";
         String enc = c.encrypt(secret);
         assertTrue(enc.startsWith("enc:v1:"), enc);
@@ -24,7 +24,7 @@ class CredentialCipherTest {
 
     @Test
     void encryptionIsNondeterministic() {
-        CredentialCipher c = new CredentialCipher("test-key-please-change");
+        CredentialCipher c = new CredentialCipher("test-key-please-change", "");
         String a = c.encrypt("same-input");
         String b = c.encrypt("same-input");
         assertNotEquals(a, b, "AES-GCM must be nondeterministic (random IV)");
@@ -34,14 +34,14 @@ class CredentialCipherTest {
 
     @Test
     void decryptPassesThroughValuesWithoutPrefix() {
-        CredentialCipher c = new CredentialCipher("test-key-please-change");
+        CredentialCipher c = new CredentialCipher("test-key-please-change", "");
         assertEquals("plain", c.decrypt("plain"));
         assertNull(c.decrypt(null));
     }
 
     @Test
     void unconfiguredCipherRefusesToEncryptButDoesNotBreakPlainReads() {
-        CredentialCipher c = new CredentialCipher("");
+        CredentialCipher c = new CredentialCipher("", "");
         assertFalse(c.isConfigured());
         assertThrows(IllegalStateException.class, () -> c.encrypt("x"));
         assertEquals("plain", c.decrypt("plain"));
@@ -50,8 +50,8 @@ class CredentialCipherTest {
 
     @Test
     void wrongKeyFailsToDecrypt() {
-        String enc = new CredentialCipher("key-a").encrypt("payload");
+        String enc = new CredentialCipher("key-a", "").encrypt("payload");
         assertThrows(IllegalStateException.class,
-                () -> new CredentialCipher("key-b").decrypt(enc));
+                () -> new CredentialCipher("key-b", "").decrypt(enc));
     }
 }
