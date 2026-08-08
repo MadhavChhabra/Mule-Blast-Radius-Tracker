@@ -289,18 +289,26 @@ public final class MuleProjectScanner {
             for (Element flow : elementsByLocalName(doc.getDocumentElement(), "flow")) {
                 String name = flow.getAttribute("name");
                 List<MuleScan.OutboundCall> calls = new ArrayList<>();
+                List<Element> callElements = new ArrayList<>();
                 for (Element req : elementsByLocalName(flow, "request")) {
                     MuleScan.OutboundCall call = toCall(req, apiByKey, configToApi);
                     if (call != null) {
                         calls.add(call);
+                        callElements.add(req);
                     }
                 }
+                int httpCalls = calls.size();
 
                 collectBackendCalls(flow, calls);
 
-                List<String> dwFields = DataWeaveLineage.referencedFields(flow.getTextContent());
-                if (!dwFields.isEmpty()) {
-                    calls.replaceAll(c -> c.withFields(dwFields));
+                attachResponseFields(flow, callElements, calls);
+                // Connector calls (db:, salesforce:, …) have no request element to anchor to, so they
+                // keep the flow-wide reading; they are end systems, never diffed against a spec.
+                List<String> flowFields = DataWeaveLineage.referencedFields(flow.getTextContent());
+                if (!flowFields.isEmpty()) {
+                    for (int i = httpCalls; i < calls.size(); i++) {
+                        calls.set(i, calls.get(i).withFields(flowFields));
+                    }
                 }
                 Endpoint parsed = parseEndpointName(name);
                 if (parsed != null) {
@@ -568,6 +576,53 @@ public final class MuleProjectScanner {
             }
         }
         return out;
+    }
+
+    /// `payload` after an `<http:request>` is that request's response, so DataWeave between one
+    /// request and the next belongs to that call alone. Attributing the whole flow to every call
+    /// would credit each downstream API with fields it never returned.
+    private static void attachResponseFields(Element flow, List<Element> callElements,
+                                             List<MuleScan.OutboundCall> calls) {
+        if (callElements.isEmpty()) {
+            return;
+        }
+        List<StringBuilder> segments = new ArrayList<>();
+        for (int i = 0; i < callElements.size(); i++) {
+            segments.add(new StringBuilder());
+        }
+        collectSegments(flow, callElements, segments, new int[]{-1});
+        for (int i = 0; i < callElements.size(); i++) {
+            List<String> fields = DataWeaveLineage.referencedFields(segments.get(i).toString());
+            if (!fields.isEmpty()) {
+                calls.set(i, calls.get(i).withFields(fields));
+            }
+        }
+    }
+
+    private static void collectSegments(Element current, List<Element> boundaries,
+                                        List<StringBuilder> segments, int[] index) {
+        for (Node node = current.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (node instanceof Element child) {
+                int at = indexOfSame(boundaries, child);
+                if (at >= 0) {
+                    index[0] = at;
+                    continue;
+                }
+                collectSegments(child, boundaries, segments, index);
+            } else if (index[0] >= 0
+                    && (node.getNodeType() == Node.TEXT_NODE || node.getNodeType() == Node.CDATA_SECTION_NODE)) {
+                segments.get(index[0]).append(node.getNodeValue()).append('\n');
+            }
+        }
+    }
+
+    private static int indexOfSame(List<Element> elements, Element target) {
+        for (int i = 0; i < elements.size(); i++) {
+            if (elements.get(i) == target) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static List<Element> elementsByLocalName(Element root, String localName) {

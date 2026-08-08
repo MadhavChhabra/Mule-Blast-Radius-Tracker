@@ -47,6 +47,42 @@ class BlastRadiusResolverTest {
     }
 
     @Test
+    void consumersWithoutFieldDataAreReportedButNotClaimedAsReaders() {
+
+        // An Anypoint contract knows the app calls the API, never which fields it reads.
+        DependencyManifest fromContract = ManifestLoader.loadDependency("""
+                consumer: mobile-app
+                depends_on:
+                  - api: orders-api
+                    endpoints:
+                      - path: "GET /orders/{id}"
+                """);
+        DependencyManifest fromScan = ManifestLoader.loadDependency("""
+                consumer: orders-web
+                depends_on:
+                  - api: orders-api
+                    endpoints:
+                      - path: "GET /orders/{id}"
+                        fields: [ "customerId" ]
+                """);
+        var resolver = new BlastRadiusResolver(List.of(fromContract, fromScan), List.of());
+
+        var hits = resolver.downstreamOf("orders-api", "GET /orders/{id}", "customerId");
+        assertEquals(2, hits.size(), "the unknown consumer must still be reported");
+
+        var web = hits.stream().filter(c -> c.consumer().equals("orders-web")).findFirst().orElseThrow();
+        var mobile = hits.stream().filter(c -> c.consumer().equals("mobile-app")).findFirst().orElseThrow();
+        assertTrue(web.fieldConfirmed(), "declared field is real evidence");
+        assertFalse(mobile.fieldConfirmed(), "no field data must not be presented as a confirmed read");
+
+        // A field the scanned consumer does NOT declare: only the unknown one remains, unconfirmed.
+        var other = resolver.downstreamOf("orders-api", "GET /orders/{id}", "internalNote");
+        assertEquals(1, other.size());
+        assertEquals("mobile-app", other.get(0).consumer());
+        assertFalse(other.get(0).fieldConfirmed());
+    }
+
+    @Test
     void fieldLevelDownstreamMatching() {
 
         Change removed = Change.of(Classification.BREAKING, ChangeKind.RESPONSE_FIELD_REMOVED,

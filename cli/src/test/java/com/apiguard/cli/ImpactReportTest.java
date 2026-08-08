@@ -38,6 +38,30 @@ class ImpactReportTest {
     }
 
     @Test
+    void consumersWithoutFieldDataAreNotClaimedToUseTheField() throws Exception {
+        String response = """
+                {
+                  "api": "orders-api",
+                  "summary": {"total": 1, "breaking": 1, "safe": 0, "additive": 0, "impactedConsumers": 1},
+                  "advisory": {"recommendedBump": "MAJOR", "riskScore": 60, "riskLevel": "HIGH"},
+                  "impacts": [
+                    {"change": {"classification": "BREAKING", "kind": "FIELD_REMOVED",
+                                "endpoint": "GET /orders/{id}", "field": "total",
+                                "description": "Response field 'total' removed"},
+                     "downstream": [
+                        {"consumer": "mobile-app", "reviewers": [], "matchedField": "total",
+                         "fieldConfirmed": false}],
+                     "upstream": []}
+                  ],
+                  "changelog": ""
+                }""";
+        String md = ImpactReport.renderMarkdown(parse(response));
+        assertFalse(md.contains("uses `total`"), "an assumption must never read as verified:\n" + md);
+        assertTrue(md.contains("may break **mobile-app**"), md);
+        assertTrue(md.contains("no field-level data"), md);
+    }
+
+    @Test
     void markdownCarriesRiskBreakingAndConsumers() throws Exception {
         String md = ImpactReport.renderMarkdown(parse(RESPONSE));
         assertTrue(md.contains("Wakegraph impact — `orders-api`"), md);

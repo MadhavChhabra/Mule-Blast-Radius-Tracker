@@ -119,11 +119,18 @@ final class ImpactReport {
                 breaking.append("  - _Ship it safely:_ ").append(remediation).append('\n');
             }
             for (JsonNode d : impact.path("downstream")) {
-                breaking.append("  - 💥 breaks **").append(d.path("consumer").asText()).append("**")
+                boolean confirmed = d.path("fieldConfirmed").asBoolean(true);
+                breaking.append(confirmed ? "  - 💥 breaks **" : "  - ❔ may break **")
+                        .append(d.path("consumer").asText()).append("**")
                         .append(teamSuffix(d));
                 String field = d.path("matchedField").asText("");
-                if (!field.isEmpty()) {
-                    breaking.append(" — uses `").append(field).append('`');
+                if (!field.isEmpty() && !"*".equals(field)) {
+                    // Only claim a field when discovered lineage proves it; otherwise say so plainly,
+                    // so a reviewer never reads an assumption as a verified fact.
+                    breaking.append(confirmed
+                            ? " — uses `" + field + '`'
+                            : " — consumes this API; no field-level data, so `" + field
+                                    + "` cannot be ruled out");
                 }
                 String readiness = readinessSuffix(d);
                 if (!readiness.isEmpty()) {

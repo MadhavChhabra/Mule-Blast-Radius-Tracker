@@ -19,7 +19,8 @@ public final class BlastRadiusResolver {
     public BlastRadiusResolver(List<DependencyManifest> consumers, List<FieldSourceManifest> sources) {
         for (DependencyManifest m : consumers) {
             ConsumerImpact ref = new ConsumerImpact(m.consumer, m.ownerTeam,
-                    List.copyOf(m.reviewers == null ? List.of() : m.reviewers), m.slackChannel, m.sourceRepo, null);
+                    List.copyOf(m.reviewers == null ? List.of() : m.reviewers), m.slackChannel, m.sourceRepo,
+                    null, true);
             for (DependencyManifest.ApiDependency dep : nullSafe(m.dependsOn)) {
                 for (DependencyManifest.EndpointDependency ep : nullSafe(dep.endpoints)) {
                     edges.add(new Edge(dep.api, ep.path,
@@ -58,12 +59,15 @@ public final class BlastRadiusResolver {
             if (!equalsIgnoreCase(edge.api, api) || !endpointMatches(endpoint, edge.endpoint)) {
                 continue;
             }
-            boolean fieldMatch = field == null
-                    || edge.fields.isEmpty()
-                    || edge.fields.contains(field)
+            // An edge with no discovered fields (an Anypoint contract, or a flow with no DataWeave)
+            // matches every field so nothing is missed — but that is an assumption, not evidence,
+            // and callers must be able to tell the two apart.
+            boolean declaresField = edge.fields.contains(field)
                     || (pointer != null && edge.fields.stream().anyMatch(f -> pointerMentions(pointer, f)));
+            boolean fieldMatch = field == null || edge.fields.isEmpty() || declaresField;
             if (fieldMatch && seen.add(edge.consumer.consumer())) {
-                hits.add(edge.consumer.withMatchedField(field == null ? "*" : field));
+                hits.add(edge.consumer.withMatch(field == null ? "*" : field,
+                        field == null || declaresField));
             }
         }
         return hits;
@@ -123,10 +127,15 @@ public final class BlastRadiusResolver {
         return list == null ? List.of() : list;
     }
 
+    /// `fieldConfirmed` is false when this consumer was matched only because nothing is known about
+    /// which fields it reads. It is still reported (missing a real break is worse), but it must not
+    /// be presented as "uses this field".
     public record ConsumerImpact(String consumer, String ownerTeam, List<String> reviewers,
-                                 String slackChannel, String sourceRepo, String matchedField) {
-        ConsumerImpact withMatchedField(String field) {
-            return new ConsumerImpact(consumer, ownerTeam, reviewers, slackChannel, sourceRepo, field);
+                                 String slackChannel, String sourceRepo, String matchedField,
+                                 boolean fieldConfirmed) {
+        ConsumerImpact withMatch(String field, boolean confirmed) {
+            return new ConsumerImpact(consumer, ownerTeam, reviewers, slackChannel, sourceRepo,
+                    field, confirmed);
         }
     }
 

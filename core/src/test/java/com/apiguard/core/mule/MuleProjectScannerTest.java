@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -171,9 +172,25 @@ class MuleProjectScannerTest {
 
         var processDep = m.dependsOn.stream().filter(d -> d.api.equals("orders-process-api")).findFirst().orElseThrow();
         var getById = processDep.endpoints.stream().filter(e -> e.path.equals("GET /orders/{orderId}")).findFirst().orElseThrow();
-        assertTrue(getById.fields.contains("customerId"), () -> "fields: " + getById.fields);
-        assertTrue(getById.fields.contains("status"));
-        assertTrue(getById.fields.contains("orderId"));
+        assertTrue(getById.fields.contains("orderId"), () -> "fields: " + getById.fields);
+        assertTrue(getById.fields.contains("status"), () -> "fields: " + getById.fields);
+    }
+
+    @Test
+    void fieldsGoToTheCallThatReturnedThemNotEveryCallInTheFlow() {
+        MuleScan scan = MuleProjectScanner.scan(sampleProject());
+        DependencyManifest m = scan.toManifest();
+
+        var process = m.dependsOn.stream().filter(d -> d.api.equals("orders-process-api")).findFirst().orElseThrow()
+                .endpoints.stream().filter(e -> e.path.equals("GET /orders/{orderId}")).findFirst().orElseThrow();
+        var customers = m.dependsOn.stream().filter(d -> d.api.equals("customers-sys-api")).findFirst().orElseThrow()
+                .endpoints.stream().filter(e -> e.path.equals("GET /customers/{id}")).findFirst().orElseThrow();
+
+        // `customerId` comes back from customers-sys-api; crediting orders-process-api with it would
+        // send a change notice to the wrong team.
+        assertTrue(customers.fields.contains("customerId"), () -> "customers fields: " + customers.fields);
+        assertFalse(process.fields.contains("customerId"), () -> "process fields: " + process.fields);
+        assertFalse(customers.fields.contains("status"), () -> "customers fields: " + customers.fields);
     }
 
     @Test
