@@ -1,6 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:apiguard_dashboard/screens/home_screen.dart';
 import 'package:apiguard_dashboard/screens/sources_screen.dart';
 import 'package:apiguard_dashboard/screens/graph_screen.dart';
 import 'package:apiguard_dashboard/screens/changelog_screen.dart';
@@ -10,16 +10,20 @@ import 'package:apiguard_dashboard/widgets.dart';
 import 'support/fake_api.dart';
 
 void main() {
-  testWidgets('Home shows estate state, not a second copy of the navigation', (tester) async {
-    await pumpScreen(tester, HomeScreen(api: fakeApi(), open: noopOpen));
+  testWidgets('Estate summary reports breaking edges and answer depth', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpScreen(tester, GraphScreen(api: fakeApi(), open: noopOpen));
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    // Estate health tiles built from the fake graph.
-    expect(find.text('Estate health'), findsOneWidget);
-    expect(find.text('Most depended-on APIs'), findsOneWidget);
-    // The nav rail already routes; Home must not repeat it as cards and a quick-start list.
-    expect(find.text('Connect your estate'), findsNothing);
-    expect(find.text('Quick start'), findsNothing);
+    // The old Home dashboard is gone; its numbers now dock onto the canvas.
+    expect(find.text('Answer depth'), findsOneWidget);
+    // Singular vs plural is chosen from the real count, so match either.
+    expect(find.textContaining(RegExp(r'breaking edge')), findsOneWidget);
   });
 
   testWidgets('Sources renders the sync bar and repo/anypoint cards', (tester) async {
@@ -32,11 +36,19 @@ void main() {
     expect(find.text('Repos'), findsOneWidget);
   });
 
-  testWidgets('Estate map renders header and controls', (tester) async {
+  testWidgets('Estate canvas renders the map and its docked chrome', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await pumpScreen(tester, GraphScreen(api: fakeApi(), open: noopOpen));
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('API-led estate map'), findsOneWidget);
+    // The canvas docks its own panels rather than owning a page header.
+    expect(find.text('Answer depth'), findsOneWidget);
+    expect(find.textContaining('Search APIs'), findsOneWidget);
   });
 
   testWidgets('Changelog renders its empty state', (tester) async {
@@ -50,6 +62,12 @@ void main() {
 
   testWidgets('API hub leads with change impact and keeps relationships one tab away',
       (tester) async {
+    // The hub is a desktop surface: the comp specifies 1440px with a 212px lineage strip.
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await pumpScreen(tester,
         ApiHubScreen(api: fakeApi(), initialApi: 'orders-exp-api', open: noopOpen));
 
@@ -67,12 +85,16 @@ void main() {
     expect(find.textContaining('Consumed by'), findsWidgets);
   });
 
-  testWidgets('Estate map empty state offers a Sources shortcut', (tester) async {
+  testWidgets('Empty estate invites the first connection', (tester) async {
     await pumpScreen(tester, GraphScreen(api: fakeApi(emptyGraph: true), open: noopOpen));
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('No estate map yet'), findsOneWidget);
-    expect(find.text('Go to Sources'), findsOneWidget);
+    expect(find.text('Let’s map your estate'), findsOneWidget);
+    // The wizard docks over the ghost estate rather than replacing it.
+    expect(find.text('Anypoint'), findsWidgets);
+    expect(find.text('Repos'), findsWidgets);
+    expect(find.text('Sync'), findsWidgets);
   });
 
   testWidgets('API hub with no APIs prompts to choose one', (tester) async {
@@ -85,6 +107,11 @@ void main() {
 
   testWidgets('API hub relationships surface an error with retry, not a false empty state',
       (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await pumpScreen(
         tester,
         ApiHubScreen(

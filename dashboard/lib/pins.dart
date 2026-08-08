@@ -62,3 +62,31 @@ class EstateDelta {
     web_util.storeSetting(_key, currentApis.join(','));
   }
 }
+
+/// Which estate node is focused, shared so the shell's top bar can *become* the focus bar rather
+/// than having the canvas draw a second bar underneath it.
+class FocusState extends ChangeNotifier {
+  static final FocusState instance = FocusState._();
+  FocusState._();
+
+  String? _api;
+  int _hops = 0;
+  int _nodes = 0;
+
+  String? get api => _api;
+  int get hops => _hops;
+  int get nodes => _nodes;
+  bool get active => _api != null;
+
+  void set(String? api, {int hops = 0, int nodes = 0}) {
+    if (_api == api && _hops == hops && _nodes == nodes) return;
+    _api = api;
+    _hops = hops;
+    _nodes = nodes;
+    notifyListeners();
+  }
+
+  /// Callbacks the bar invokes; owned by the canvas because it holds the direction state.
+  VoidCallback? onClose;
+  VoidCallback? onOpenHub;
+}

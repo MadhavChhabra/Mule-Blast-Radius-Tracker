@@ -21,7 +21,8 @@ void main() {
     ));
     await tester.pump();
 
-    expect(find.byType(Shimmer), findsOneWidget);
+    // The skeleton staggers several shimmering plates rather than pulsing as one block.
+    expect(find.byType(Shimmer), findsWidgets);
     expect(find.textContaining('loaded'), findsNothing);
 
     completer.complete([1, 2, 3]);

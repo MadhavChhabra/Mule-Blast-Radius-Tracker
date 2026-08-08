@@ -1,13 +1,18 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../main.dart';
+import '../pins.dart';
 import '../theme.dart';
-import '../util/file_upload.dart' as web_util;
 import '../widgets.dart';
+import '../widgets/skeleton.dart';
+import 'first_run.dart';
 
+/// The estate canvas — the home surface. The map is not a tab you visit; it is the ground the
+/// whole product sits on, with everything else docked over it as glass.
 class GraphScreen extends StatefulWidget {
   final ApiClient api;
   final OpenFn? open;
@@ -17,946 +22,1404 @@ class GraphScreen extends StatefulWidget {
   State<GraphScreen> createState() => _GraphScreenState();
 }
 
+/// Which way the blast path is traced from the focused node.
+enum FocusDirection { downstream, upstream, both }
+
 class _GraphScreenState extends State<GraphScreen> {
-  String _search = '';
-  String? _selected;
-  bool _showStandalone = false;
-  bool _showGovernance = true;
-  Future<GraphDto>? _future;
-  List<InsightFinding> _findings = const [];
+  Future<GraphDto>? _graph;
+  Future<List<InsightFinding>>? _insights;
+
+  String? _focused;
+  FocusDirection _direction = FocusDirection.downstream;
+  bool _governance = true;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.api.graph();
-    _loadInsights();
+    _load();
   }
 
-  Future<void> _loadInsights() async {
-    try {
-      final f = await widget.api.insights();
-      if (mounted) setState(() => _findings = f);
-    } catch (_) {}
+  void _load() {
+    setState(() {
+      _graph = widget.api.graph();
+      _insights = widget.api.insights().catchError((_) => <InsightFinding>[]);
+    });
   }
 
-  Set<String> _connectedIds(GraphDto graph) {
-    final ids = <String>{};
-    for (final e in graph.edges) {
-      ids.add(e.from);
-      ids.add(e.to);
-    }
-    return ids;
-  }
+  void _focus(String? id) => setState(() => _focused = id);
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ScreenHeader('API-led estate map',
-            'Consumer apps → Experience → Process → System. Red edges carry a breaking change.',
-            actions: [
-              IconButton(
-                tooltip: 'Refresh',
-                onPressed: () {
-                  final next = widget.api.graph(refresh: true);
-                  setState(() {
-                    _future = next;
-                  });
-                  _loadInsights();
-                },
-                icon: const Icon(Icons.refresh),
-              ),
-            ]),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(children: [
-            SizedBox(
-              width: 320,
-              child: TextField(
-                decoration: const InputDecoration(
-                  isDense: true,
-                  prefixIcon: Icon(Icons.search, size: 18),
-                  border: OutlineInputBorder(),
-                  hintText: 'Search APIs / apps',
-                ),
-                onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
-              ),
+    return FutureBuilder<GraphDto>(
+      future: _graph,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const _CanvasBackdrop(child: Center(child: SkeletonList(rows: 3)));
+        }
+        if (snap.hasError) {
+          return _CanvasBackdrop(
+            child: Center(
+              child: ApiErrorState(
+                  error: snap.error!,
+                  onRetry: () {
+                    widget.api.invalidateGraph();
+                    _load();
+                  }),
             ),
-            if (_findings.isNotEmpty) ...[
-              const SizedBox(width: 12),
-              Tooltip(
-                message: 'Paint governance findings on the map:\n'
-                    'dashed red = upward call / dependency cycle\n'
-                    'dashed amber = layer skip\n'
-                    'flame = change hotspot',
-                child: FilterChip(
-                  avatar: Icon(Icons.policy_outlined, size: 16,
-                      color: _showGovernance ? AppColors.breaking : null),
-                  label: Text('Governance (${_findings.length})'),
-                  selected: _showGovernance,
-                  onSelected: (v) => setState(() => _showGovernance = v),
-                ),
-              ),
-            ],
-            const SizedBox(width: 12),
-            PopupMenuButton<String>(
-              tooltip: 'Export the estate map',
-              onSelected: (path) => web_util.openDownload('$apiBase$path'),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: '/api/graph/export.svg?download=true',
-                    child: Text('Estate map (SVG)')),
-                PopupMenuItem(value: '/api/graph/export.csv?kind=nodes&download=true',
-                    child: Text('Nodes (CSV)')),
-                PopupMenuItem(value: '/api/graph/export.csv?kind=edges&download=true',
-                    child: Text('Edges (CSV)')),
-              ],
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).colorScheme.outline),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.file_download_outlined, size: 16),
-                  SizedBox(width: 6),
-                  Text('Export ▾'),
-                ]),
-              ),
-            ),
-            const SizedBox(width: 16),
-            const _Legend(),
-          ]),
-        ),
-        Expanded(
-          child: AsyncView<GraphDto>(
-            future: _future!,
-            builder: (context, graph) {
-              if (graph.nodes.isEmpty) {
-                return EmptyState(
-                  icon: Icons.hub_outlined,
-                  title: 'No estate map yet',
-                  message: 'Add a repo or connect Anypoint in Sources, then Sync everything to build the map.',
-                  action: widget.open == null
-                      ? null
-                      : FilledButton.icon(
-                          onPressed: () => widget.open!(Tabs.sources),
-                          icon: const Icon(Icons.cable_outlined, size: 18),
-                          label: const Text('Go to Sources'),
-                        ),
-                );
-              }
-              final connectedIds = _connectedIds(graph);
-              final standalone = graph.nodes.length - connectedIds.length;
-              final overlay = _GovernanceOverlay.build(_findings, graph.edges, _showGovernance);
-              return Row(children: [
-                Expanded(
-                  child: Column(children: [
-                    if (standalone > 0)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
-                        child: Row(children: [
-                          Text('$standalone standalone API(s) hidden',
-                              style: Theme.of(context).textTheme.bodySmall),
-                          const SizedBox(width: 8),
-                          Switch(
-                            value: _showStandalone,
-                            onChanged: (v) => setState(() => _showStandalone = v),
-                          ),
-                          Text(_showStandalone ? 'showing all' : 'connected only',
-                              style: Theme.of(context).textTheme.bodySmall),
-                        ]),
-                      ),
-                    Expanded(
-                      child: _LayeredMap(
-                        graph: graph,
-                        search: _search,
-                        selected: _selected,
-                        showStandalone: _showStandalone,
-                        connectedIds: connectedIds,
-                        overlay: overlay,
-                        onSelect: (id) => setState(() => _selected = id),
-                      ),
-                    ),
-                  ]),
-                ),
-                if (_selected != null)
-                  _DetailPanel(
-                    node: graph.nodes.firstWhere((n) => n.id == _selected,
-                        orElse: () => graph.nodes.first),
-                    graph: graph,
-                    findings: _findings,
-                    open: widget.open,
-                    onClose: () => setState(() => _selected = null),
-                    onSelect: (id) => setState(() => _selected = id),
-                  ),
-              ]);
+          );
+        }
+        final graph = snap.data!;
+        if (graph.nodes.isEmpty) {
+          return _FirstRunCanvas(
+            api: widget.api,
+            open: widget.open,
+            onDone: () {
+              widget.api.invalidateGraph();
+              _load();
             },
-          ),
-        ),
-      ],
+          );
+        }
+        return _Estate(
+          api: widget.api,
+          graph: graph,
+          insights: _insights!,
+          focused: _focused,
+          direction: _direction,
+          governance: _governance,
+          onFocus: _focus,
+          onDirection: (d) => setState(() => _direction = d),
+          onGovernance: (v) => setState(() => _governance = v),
+          open: widget.open,
+        );
+      },
     );
   }
 }
 
-const List<String> _layerOrder = ['APP', 'EXPERIENCE', 'PROCESS', 'SYSTEM', 'BACKEND', 'UNKNOWN'];
-
-class _GovernanceOverlay {
-  final Map<String, String> edgeSeverity;
-  final Set<String> cycleNodes;
-  final Set<String> hotspotNodes;
-  final bool enabled;
-  const _GovernanceOverlay(this.edgeSeverity, this.cycleNodes, this.hotspotNodes, this.enabled);
-
-  factory _GovernanceOverlay.build(List<InsightFinding> findings, List<GraphEdge> edges, bool enabled) {
-    final sev = <String, String>{};
-    final cyc = <String>{};
-    final hot = <String>{};
-    final cycleGroups = <Set<String>>[];
-    for (final f in findings) {
-      switch (f.rule) {
-        case 'upward-call':
-          if (f.apis.length >= 2) sev['${f.apis[0]}|${f.apis[1]}'] = 'high';
-        case 'layer-skip':
-
-          if (f.severity == 'medium' && f.apis.length >= 2) {
-            sev.putIfAbsent('${f.apis[0]}|${f.apis[1]}', () => 'medium');
-          }
-        case 'dependency-cycle':
-          cyc.addAll(f.apis);
-          cycleGroups.add(f.apis.toSet());
-        case 'change-hotspot':
-          if (f.apis.isNotEmpty) hot.add(f.apis.first);
-      }
-    }
-
-    for (final e in edges) {
-      for (final g in cycleGroups) {
-        if (g.contains(e.from) && g.contains(e.to)) {
-          sev['${e.from}|${e.to}'] = 'high';
-          break;
-        }
-      }
-    }
-    return _GovernanceOverlay(sev, cyc, hot, enabled);
-  }
-
-  String? severityFor(String from, String to) => enabled ? edgeSeverity['$from|$to'] : null;
-  bool inCycle(String id) => enabled && cycleNodes.contains(id);
-  bool isHotspot(String id) => enabled && hotspotNodes.contains(id);
-}
-
-void _orderColumnsToReduceCrossings(
-    List<String> columns, Map<String, List<GraphNode>> byLayer, List<GraphEdge> edges) {
-  final adj = <String, List<String>>{};
-  for (final e in edges) {
-    adj.putIfAbsent(e.from, () => []).add(e.to);
-    adj.putIfAbsent(e.to, () => []).add(e.from);
-  }
-
-  for (final l in columns) {
-    byLayer[l]!.sort((a, b) => b.dependedOnBy.compareTo(a.dependedOnBy));
-  }
-  final row = <String, int>{};
-  void reindex() {
-    for (final l in columns) {
-      final list = byLayer[l]!;
-      for (int i = 0; i < list.length; i++) {
-        row[list[i].id] = i;
-      }
-    }
-  }
-
-  reindex();
-  for (int iter = 0; iter < 6; iter++) {
-    final sweep = iter.isEven ? columns : columns.reversed.toList();
-    for (final l in sweep) {
-      final list = byLayer[l]!;
-      final bary = <String, double>{};
-      for (final n in list) {
-        final neigh = adj[n.id];
-        if (neigh == null || neigh.isEmpty) {
-          bary[n.id] = (row[n.id] ?? 0).toDouble();
-          continue;
-        }
-        double sum = 0;
-        int cnt = 0;
-        for (final m in neigh) {
-          final p = row[m];
-          if (p != null) {
-            sum += p;
-            cnt++;
-          }
-        }
-        bary[n.id] = cnt > 0 ? sum / cnt : (row[n.id] ?? 0).toDouble();
-      }
-      list.sort((a, b) => bary[a.id]!.compareTo(bary[b.id]!));
-      reindex();
-    }
-  }
-}
-
-class _LayeredMap extends StatefulWidget {
-  final GraphDto graph;
-  final String search;
-  final String? selected;
-  final bool showStandalone;
-  final Set<String> connectedIds;
-  final _GovernanceOverlay overlay;
-  final void Function(String) onSelect;
-  const _LayeredMap({
-    required this.graph,
-    required this.search,
-    required this.selected,
-    required this.showStandalone,
-    required this.connectedIds,
-    required this.overlay,
-    required this.onSelect,
-  });
-
-  static const double cardW = 200;
-  static const double cardH = 62;
-  static const double colGap = 130;
-  static const double rowGap = 20;
-  static const double padLeft = 24;
-  static const double padTop = 52;
+/// The three stacked backdrop layers: layer bands, a 44px survey grid, and a slow violet sweep.
+class _CanvasBackdrop extends StatefulWidget {
+  final Widget child;
+  final bool bands;
+  const _CanvasBackdrop({required this.child, this.bands = true});
 
   @override
-  State<_LayeredMap> createState() => _LayeredMapState();
+  State<_CanvasBackdrop> createState() => _CanvasBackdropState();
 }
 
-class _LayeredMapState extends State<_LayeredMap> {
+class _CanvasBackdropState extends State<_CanvasBackdrop>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _sweep =
+      AnimationController(vsync: this, duration: const Duration(seconds: 9))..repeat();
 
-  final _pos = <String, Offset>{};
-  final _columnCounts = <String, int>{};
-  List<GraphNode> _visible = [];
-  List<String> _columns = [];
-  double _totalW = 400;
-  double _totalH = 300;
-  double _scale = 0.85;
+  @override
+  void dispose() {
+    _sweep.dispose();
+    super.dispose();
+  }
 
-  final _vCtrl = ScrollController();
-  final _hCtrl = ScrollController();
-  Size _viewport = Size.zero;
-  int _cullTick = 0;
-  String? _hovered;
+  static const _bandColors = [
+    AppColors.app,
+    AppColors.experience,
+    AppColors.process,
+    AppColors.system,
+    AppColors.backend,
+  ];
 
-  void _setHovered(String? id) {
-    if (_hovered != id && mounted) {
-      setState(() => _hovered = id);
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    return Container(
+      color: AppColors.canvas,
+      child: Stack(children: [
+        if (widget.bands)
+          Positioned.fill(
+            child: Row(
+              children: [
+                for (final c in _bandColors)
+                  Expanded(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [c.withOpacity(0.075), c.withOpacity(0)],
+                          stops: const [0, 0.55],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        Positioned.fill(
+          child: CustomPaint(painter: _GridPainter()),
+        ),
+        if (!reduce)
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _sweep,
+              builder: (context, _) {
+                final h = MediaQuery.sizeOf(context).height;
+                return Transform.translate(
+                  offset: Offset(0, -120 + (_sweep.value * (h + 240))),
+                  child: Container(
+                    height: 180,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AppColors.accent.withOpacity(0),
+                          AppColors.accent.withOpacity(0.05),
+                          AppColors.accent.withOpacity(0),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        Positioned.fill(child: widget.child),
+      ]),
+    );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = Colors.white.withOpacity(0.022)
+      ..strokeWidth = 1;
+    for (double x = 0; x < size.width; x += 44) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
+    }
+    for (double y = 0; y < size.height; y += 44) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
     }
   }
+
+  @override
+  bool shouldRepaint(covariant _GridPainter oldDelegate) => false;
+}
+
+/// Fixed column geometry, transcribed from the comp: x-origins 60 / 330 / 630 / 890 with per-layer
+/// widths, rows on a 120px pitch starting at y=276.
+class _Layout {
+  static const layers = ['APP', 'EXPERIENCE', 'PROCESS', 'SYSTEM', 'BACKEND'];
+  static const widths = [190.0, 220.0, 220.0, 190.0, 190.0];
+  static const gutters = [80.0, 80.0, 40.0, 80.0];
+  static const rowTop = 276.0;
+  static const rowPitch = 120.0;
+  static const headerOffset = 66.0;
+  static const nodeAnchor = 24.0;
+
+  static double columnX(int i) {
+    double x = 60;
+    for (int k = 0; k < i; k++) {
+      x += widths[k] + gutters[k];
+    }
+    return x;
+  }
+
+  static double totalWidth() => columnX(layers.length - 1) + widths.last + 60;
+}
+
+class _Placed {
+  final GraphNode node;
+  final double x;
+  final double y;
+  final double width;
+  const _Placed(this.node, this.x, this.y, this.width);
+
+  Offset get leftAnchor => Offset(x, y + _Layout.nodeAnchor);
+  Offset get rightAnchor => Offset(x + width, y + _Layout.nodeAnchor);
+}
+
+class _Estate extends StatefulWidget {
+  final ApiClient api;
+  final GraphDto graph;
+  final Future<List<InsightFinding>> insights;
+  final String? focused;
+  final FocusDirection direction;
+  final bool governance;
+  final ValueChanged<String?> onFocus;
+  final ValueChanged<FocusDirection> onDirection;
+  final ValueChanged<bool> onGovernance;
+  final OpenFn? open;
+
+  const _Estate({
+    required this.api,
+    required this.graph,
+    required this.insights,
+    required this.focused,
+    required this.direction,
+    required this.governance,
+    required this.onFocus,
+    required this.onDirection,
+    required this.onGovernance,
+    required this.open,
+  });
+
+  @override
+  State<_Estate> createState() => _EstateState();
+}
+
+class _EstateState extends State<_Estate> with TickerProviderStateMixin {
+  final _h = ScrollController();
+  final _v = ScrollController();
+  double _scale = 0.85;
+
+  /// Drives the marching dashes on breaking edges.
+  late final AnimationController _dash =
+      AnimationController(vsync: this, duration: AppMotion.edgeFlow)..repeat();
+
+  /// Drives the staggered path reveal in focus mode.
+  late final AnimationController _reveal =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1550));
+
+  late final AnimationController _breathe =
+      AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+
+  final _positions = <String, _Placed>{};
 
   @override
   void initState() {
     super.initState();
-    _recompute();
-    _vCtrl.addListener(_onScroll);
-    _hCtrl.addListener(_onScroll);
-  }
-
-  void _onScroll() {
-    if (!mounted) return;
-    setState(() => _cullTick++);
+    _place();
+    if (widget.focused != null) _reveal.forward();
   }
 
   @override
-  void didUpdateWidget(covariant _LayeredMap old) {
+  void didUpdateWidget(covariant _Estate old) {
     super.didUpdateWidget(old);
-
-    if (old.graph != widget.graph || old.showStandalone != widget.showStandalone) {
-      _recompute();
+    if (old.graph != widget.graph) _place();
+    if (old.focused != widget.focused) {
+      if (widget.focused == null) {
+        _reveal.reset();
+      } else {
+        _reveal.forward(from: 0);
+      }
     }
   }
 
   @override
   void dispose() {
-    _vCtrl.removeListener(_onScroll);
-    _hCtrl.removeListener(_onScroll);
-    _vCtrl.dispose();
-    _hCtrl.dispose();
+    _dash.dispose();
+    _reveal.dispose();
+    _breathe.dispose();
+    _h.dispose();
+    _v.dispose();
     super.dispose();
   }
 
-  Rect _visibleRect() {
-    if (_viewport == Size.zero) {
-      return Rect.fromLTWH(0, 0, _totalW, _totalH);
-    }
-    final vx = _hCtrl.hasClients ? _hCtrl.offset : 0.0;
-    final vy = _vCtrl.hasClients ? _vCtrl.offset : 0.0;
-    final vw = _viewport.width / _scale;
-    final vh = _viewport.height / _scale;
-    const margin = _LayeredMap.cardW;
-    return Rect.fromLTWH(vx / _scale - margin, vy / _scale - margin,
-        vw + margin * 2, vh + margin * 2);
-  }
-
-  void _recompute() {
-    _pos.clear();
-    _columnCounts.clear();
-
-    _visible = widget.showStandalone
-        ? widget.graph.nodes
-        : widget.graph.nodes.where((n) => widget.connectedIds.contains(n.id)).toList();
-
-    final byLayer = {for (final l in _layerOrder) l: _visible.where((n) => n.layer == l).toList()};
-    _columns = _layerOrder.where((l) => byLayer[l]!.isNotEmpty).toList();
-    _orderColumnsToReduceCrossings(_columns, byLayer, widget.graph.edges);
-
-    for (int c = 0; c < _columns.length; c++) {
-      final list = byLayer[_columns[c]]!;
-      _columnCounts[_columns[c]] = list.length;
-      for (int i = 0; i < list.length; i++) {
-        _pos[list[i].id] = Offset(
-            _LayeredMap.padLeft + c * (_LayeredMap.cardW + _LayeredMap.colGap),
-            _LayeredMap.padTop + i * (_LayeredMap.cardH + _LayeredMap.rowGap));
+  void _place() {
+    _positions.clear();
+    for (int i = 0; i < _Layout.layers.length; i++) {
+      final layer = _Layout.layers[i];
+      final inLayer = widget.graph.nodes.where((n) => n.layer == layer).toList()
+        ..sort((a, b) => b.dependedOnBy.compareTo(a.dependedOnBy));
+      for (int r = 0; r < inLayer.length; r++) {
+        _positions[inLayer[r].id] = _Placed(
+          inLayer[r],
+          _Layout.columnX(i),
+          _Layout.rowTop + r * _Layout.rowPitch,
+          _Layout.widths[i],
+        );
       }
     }
-    final maxRows = _columns.map((l) => byLayer[l]!.length).fold(0, math.max);
-    _totalW = _LayeredMap.padLeft * 2 +
-        _columns.length * _LayeredMap.cardW +
-        math.max(0, _columns.length - 1) * _LayeredMap.colGap;
-    _totalH = _LayeredMap.padTop * 2 + maxRows * (_LayeredMap.cardH + _LayeredMap.rowGap);
+    // Anything with an unrecognised layer still needs somewhere to live.
+    final unplaced = widget.graph.nodes.where((n) => !_positions.containsKey(n.id)).toList();
+    for (int r = 0; r < unplaced.length; r++) {
+      _positions[unplaced[r].id] = _Placed(
+        unplaced[r],
+        _Layout.columnX(_Layout.layers.length - 1),
+        _Layout.rowTop + r * _Layout.rowPitch,
+        _Layout.widths.last,
+      );
+    }
   }
 
-  bool _nodeBreaking(String id) =>
-      widget.graph.edges.any((e) => e.risk == 'breaking' && (e.to == id || e.from == id));
-
-  /// Everything reachable from [root] in both directions — the actual blast radius, not just the
-  /// immediate neighbours. Direct neighbours are returned separately so the map can show the
-  /// difference between "you break this" and "this is downwind".
-  (Set<String> direct, Set<String> reachable) _radiusOf(String root) {
-    final direct = <String>{root};
-    for (final e in widget.graph.edges) {
-      if (e.from == root) direct.add(e.to);
-      if (e.to == root) direct.add(e.from);
-    }
-    final reachable = <String>{root};
-    final queue = <String>[root];
-    while (queue.isNotEmpty) {
-      final at = queue.removeLast();
+  /// Edges on the blast path, in hop order, so the reveal can stagger by distance.
+  List<GraphEdge> _pathEdges() {
+    final root = widget.focused;
+    if (root == null) return const [];
+    final out = <GraphEdge>[];
+    final seen = <String>{root};
+    var frontier = <String>{root};
+    while (frontier.isNotEmpty) {
+      final next = <String>{};
       for (final e in widget.graph.edges) {
-        if (e.from == at && reachable.add(e.to)) queue.add(e.to);
-        if (e.to == at && reachable.add(e.from)) queue.add(e.from);
+        final down = widget.direction != FocusDirection.upstream;
+        final up = widget.direction != FocusDirection.downstream;
+        if (down && frontier.contains(e.to) && seen.add(e.from)) {
+          out.add(e);
+          next.add(e.from);
+        }
+        if (up && frontier.contains(e.from) && seen.add(e.to)) {
+          out.add(e);
+          next.add(e.to);
+        }
       }
+      frontier = next;
     }
-    return (direct, reachable);
+    return out;
   }
+
+  Set<String> _pathNodes(List<GraphEdge> edges) {
+    final s = <String>{if (widget.focused != null) widget.focused!};
+    for (final e in edges) {
+      s.add(e.from);
+      s.add(e.to);
+    }
+    return s;
+  }
+
+  void _zoom(double delta) =>
+      setState(() => _scale = (_scale + delta).clamp(0.3, 2.0));
 
   @override
   Widget build(BuildContext context) {
-    final focus = _hovered ?? widget.selected;
-    final selected = widget.selected;
-    final search = widget.search;
-    bool matches(GraphNode n) => search.isEmpty || n.label.toLowerCase().contains(search);
-    var connected = const <String>{};
-    var direct = const <String>{};
-    if (focus != null) {
-      final radius = _radiusOf(focus);
-      direct = radius.$1;
-      connected = radius.$2;
-    }
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final focusing = widget.focused != null;
+    final pathEdges = _pathEdges();
+    final onPath = _pathNodes(pathEdges);
 
-    final children = <Widget>[];
-    for (int c = 0; c < _columns.length; c++) {
-      final color = AppColors.forLayer(_columns[c]);
-      children.add(Positioned(
-        left: _LayeredMap.padLeft + c * (_LayeredMap.cardW + _LayeredMap.colGap),
-        top: 14,
-        width: _LayeredMap.cardW,
-        child: Row(children: [
-          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text('${AppColors.layerLabel(_columns[c])}s  (${_columnCounts[_columns[c]]})',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12)),
-          ),
-        ]),
-      ));
-    }
-    final visRect = _visibleRect();
-    for (final n in _visible) {
-      final p = _pos[n.id];
-      if (p == null) continue;
-      final cardRect = Rect.fromLTWH(p.dx, p.dy, _LayeredMap.cardW, _LayeredMap.cardH);
-      if (!cardRect.overlaps(visRect)) {
-        continue;
-      }
-      final dim = (focus != null && !connected.contains(n.id)) || !matches(n);
-      // Three states, not two: the focus and what it directly touches read at full strength,
-      // what is only transitively downwind sits between, everything else recedes.
-      final opacity = dim ? 0.22 : (focus == null || direct.contains(n.id) ? 1.0 : 0.62);
-      children.add(Positioned(
-        left: p.dx,
-        top: p.dy,
-        width: _LayeredMap.cardW,
-        height: _LayeredMap.cardH,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => _setHovered(n.id),
-          onExit: (_) => _setHovered(null),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            opacity: opacity,
-            child: _NodeCard(
-              node: n,
-              selected: selected == n.id,
-              traced: focus != null && focus != n.id && connected.contains(n.id),
-              breaking: _nodeBreaking(n.id),
-              inCycle: widget.overlay.inCycle(n.id),
-              hotspot: widget.overlay.isHotspot(n.id),
-              onTap: () => widget.onSelect(n.id),
-            ),
-          ),
-        ),
-      ));
-    }
+    // Publish focus upward so the shell's bar can take it over.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final focus = FocusState.instance;
+      focus.onClose = () => widget.onFocus(null);
+      focus.onOpenHub = () => widget.open?.call(Tabs.apiHub, api: widget.focused);
+      focus.set(widget.focused, hops: pathEdges.length, nodes: onPath.length);
+    });
 
-    final canvas = SizedBox(
-      width: _totalW,
-      height: _totalH,
-      child: Stack(children: [
-        Positioned.fill(
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: _EdgePainter(
-                edges: widget.graph.edges,
-                pos: _pos,
-                selected: focus,
-                overlay: widget.overlay,
-                dimColor: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
-        ),
-        ...children,
-      ]),
-    );
+    final canvasW = _Layout.totalWidth();
+    final rows = _Layout.layers
+        .map((l) => widget.graph.nodes.where((n) => n.layer == l).length)
+        .fold<int>(0, math.max);
+    final canvasH = _Layout.rowTop + math.max(rows, 3) * _Layout.rowPitch + 160;
 
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      child: Stack(children: [
-
-        LayoutBuilder(builder: (context, constraints) {
-          final size = Size(constraints.maxWidth, constraints.maxHeight);
-          if (size != _viewport) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _viewport = size);
-            });
-          }
-          return Scrollbar(
-            controller: _vCtrl,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: _vCtrl,
-              scrollDirection: Axis.vertical,
-              child: Scrollbar(
-                controller: _hCtrl,
-                thumbVisibility: true,
-                notificationPredicate: (n) => n.depth == 1,
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, e) {
+        if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape && focusing) {
+          widget.onFocus(null);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: _CanvasBackdrop(
+        bands: !focusing,
+        child: Stack(children: [
+          // ---- the map itself, pannable ----
+          Positioned.fill(
+            child: Scrollbar(
+              controller: _v,
+              child: SingleChildScrollView(
+                controller: _v,
                 child: SingleChildScrollView(
-                  controller: _hCtrl,
+                  controller: _h,
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(
-                    width: math.max(_totalW * _scale, 400),
-                    height: math.max(_totalH * _scale, 300),
+                    width: canvasW * _scale,
+                    height: canvasH * _scale,
                     child: Transform.scale(
                       scale: _scale,
                       alignment: Alignment.topLeft,
-                      child: canvas,
+                      child: SizedBox(
+                        width: canvasW,
+                        height: canvasH,
+                        child: Stack(children: [
+                          if (focusing)
+                            Positioned(
+                              left: (_positions[widget.focused]?.x ?? 0) - 450 + 110,
+                              top: (_positions[widget.focused]?.y ?? 0) - 450 + 24,
+                              width: 900,
+                              height: 900,
+                              child: const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: RadialGradient(
+                                    colors: [Color(0x1AFF5C61), Color(0x00FF5C61)],
+                                    stops: [0, 0.62],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Positioned.fill(
+                            child: AnimatedBuilder(
+                              animation: Listenable.merge([_dash, _reveal]),
+                              builder: (context, _) => CustomPaint(
+                                painter: _EdgePainter(
+                                  edges: widget.graph.edges,
+                                  positions: _positions,
+                                  pathEdges: pathEdges,
+                                  focusing: focusing,
+                                  dash: _dash.value,
+                                  reveal: reduce ? 1.0 : _reveal.value,
+                                  reduce: reduce,
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (int i = 0; i < _Layout.layers.length; i++)
+                            if (widget.graph.nodes.any((n) => n.layer == _Layout.layers[i]))
+                              Positioned(
+                                left: _Layout.columnX(i),
+                                top: _Layout.rowTop - _Layout.headerOffset,
+                                child: Text(
+                                  '${AppColors.layerBand(_Layout.layers[i])} · '
+                                  '${widget.graph.nodes.where((n) => n.layer == _Layout.layers[i]).length}',
+                                  style: monoLabel(
+                                    size: 10,
+                                    color: AppColors.forLayer(_Layout.layers[i])
+                                        .withOpacity(focusing ? 0.5 : 1),
+                                  ),
+                                ),
+                              ),
+                          // The node layer has to listen to the reveal too — without this the
+                          // cards compute their opacity once at value 0 and never repaint, so
+                          // focus mode showed edges over an empty canvas.
+                          if (focusing)
+                            Positioned.fill(
+                              child: AnimatedBuilder(
+                                animation: _reveal,
+                                builder: (context, _) => Stack(children: [
+                                  for (final placed in _positions.values)
+                                    _positionedNode(placed, focusing, onPath, pathEdges, reduce),
+                                ]),
+                              ),
+                            )
+                          else
+                            for (final placed in _positions.values)
+                              _positionedNode(placed, focusing, onPath, pathEdges, reduce),
+                        ]),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          );
-        }),
-        Positioned(right: 16, bottom: 16, child: _ZoomControls(
-          scale: _scale,
-          onZoom: (d) => setState(() => _scale = (_scale + d).clamp(0.3, 2.0)),
-        )),
-      ]),
-    );
-  }
-}
-
-class _ZoomControls extends StatelessWidget {
-  final double scale;
-  final void Function(double) onZoom;
-  const _ZoomControls({required this.scale, required this.onZoom});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      borderRadius: BorderRadius.circular(10),
-      color: Theme.of(context).colorScheme.surface,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(onPressed: () => onZoom(-0.1), icon: const Icon(Icons.remove), tooltip: 'Zoom out'),
-        Text('${(scale * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w600)),
-        IconButton(onPressed: () => onZoom(0.1), icon: const Icon(Icons.add), tooltip: 'Zoom in'),
-      ]),
-    );
-  }
-}
-
-class _NodeCard extends StatelessWidget {
-  final GraphNode node;
-  final bool selected;
-
-  /// On the blast path of whatever is focused, but not the focus itself.
-  final bool traced;
-  final bool breaking;
-  final bool inCycle;
-  final bool hotspot;
-  final VoidCallback onTap;
-  const _NodeCard({required this.node, required this.selected, required this.breaking,
-      this.traced = false, this.inCycle = false, this.hotspot = false, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = AppColors.forLayer(node.layer);
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-                color: selected ? color : color.withOpacity(traced ? 0.85 : 0.55),
-                width: selected ? 2.4 : (traced ? 1.8 : 1.2)),
-            boxShadow: selected
-                ? [BoxShadow(color: color.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 2))]
-                : (traced
-                    ? [BoxShadow(color: color.withOpacity(0.16), blurRadius: 8, offset: const Offset(0, 2))]
-                    : null),
           ),
-          child: Row(children: [
-            Container(width: 5, height: double.infinity,
-                decoration: BoxDecoration(
-                    color: color, borderRadius: const BorderRadius.horizontal(left: Radius.circular(9)))),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(node.label,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                  Text(AppColors.layerLabel(node.layer),
-                      style: TextStyle(fontSize: 10, color: color)),
-                ],
+
+          // ---- docked chrome ----
+          if (!focusing) ...[
+            Positioned(left: 28, bottom: 30, child: _SummaryPanel(graph: widget.graph)),
+            Positioned(
+              right: 28,
+              top: 96,
+              width: 300,
+              child: _AttentionStack(
+                insights: widget.insights,
+                graph: widget.graph,
+                governance: widget.governance,
+                onOpen: (api) => widget.onFocus(api),
               ),
             ),
-            if (breaking) const Padding(
-              padding: EdgeInsets.only(right: 6),
-              child: Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.breaking),
+          ],
+          if (focusing)
+            Positioned(
+              right: 28,
+              bottom: 30,
+              width: 340,
+              child: _WhoToTell(
+                api: widget.api,
+                apiId: widget.focused!,
+                graph: widget.graph,
+              ),
             ),
-            if (inCycle) const Padding(
-              padding: EdgeInsets.only(right: 6),
-              child: Tooltip(message: 'Part of a dependency cycle',
-                  child: Icon(Icons.loop, size: 15, color: AppColors.breaking)),
+          // The comp's focus screen has no zoom cluster — the "who to tell" panel owns that corner.
+          if (!focusing)
+            Positioned(
+              right: 28,
+              bottom: 30,
+              child: _ZoomCluster(
+                scale: _scale,
+                onZoom: _zoom,
+                onFit: () => setState(() => _scale = 0.85),
+              ),
             ),
-            if (hotspot) const Padding(
-              padding: EdgeInsets.only(right: 6),
-              child: Tooltip(message: 'Change hotspot — many consumers depend on this',
-                  child: Icon(Icons.local_fire_department_outlined, size: 15, color: AppColors.warning)),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 30,
+            child: Center(
+              child: _CommandBar(
+                governance: widget.governance,
+                focusing: focusing,
+                onGovernance: widget.onGovernance,
+                onExitFocus: () => widget.onFocus(null),
+              ),
             ),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                _deg(context, Icons.south_east, node.dependsOn),
-                _deg(context, Icons.north_east, node.dependedOnBy),
-              ]),
-            ),
-          ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _positionedNode(_Placed placed, bool focusing, Set<String> onPath,
+      List<GraphEdge> pathEdges, bool reduce) {
+    final isFocus = placed.node.id == widget.focused;
+    final lit = !focusing || onPath.contains(placed.node.id);
+    // Each node arrives 400ms after its incoming edge starts drawing.
+    final hop = _hopOf(placed.node.id, pathEdges);
+    final start = (0.10 + hop * 0.25) / 1.55;
+    final popped = reduce || !focusing || _reveal.value >= start;
+
+    return Positioned(
+      left: placed.x,
+      top: placed.y,
+      width: placed.width,
+      child: AnimatedOpacity(
+        duration: AppMotion.fast,
+        opacity: lit ? (popped ? 1 : 0) : 0.28,
+        child: _NodeCard(
+          node: placed.node,
+          focused: isFocus,
+          dimmed: focusing && !lit,
+          breaking: widget.graph.edges
+              .any((e) => e.risk == 'breaking' && (e.to == placed.node.id || e.from == placed.node.id)),
+          shallowOnly: () {
+            final touching = widget.graph.edges
+                .where((e) => e.to == placed.node.id || e.from == placed.node.id);
+            return touching.isNotEmpty && touching.every((e) => !e.endpointLevel);
+          }(),
+          breathe: isFocus ? _breathe : null,
+          onTap: () => widget.onFocus(isFocus ? null : placed.node.id),
+          onOpen: () => widget.open?.call(Tabs.apiHub, api: placed.node.id),
         ),
       ),
     );
   }
 
-  Widget _deg(BuildContext context, IconData icon, int n) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
-        const SizedBox(width: 1),
-        Text('$n', style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ]);
+  int _hopOf(String id, List<GraphEdge> pathEdges) {
+    if (id == widget.focused) return 0;
+    for (int i = 0; i < pathEdges.length; i++) {
+      if (pathEdges[i].from == id || pathEdges[i].to == id) return i + 1;
+    }
+    return 0;
+  }
 }
 
+/// Cubic béziers between column gutters, stroked by risk. Breaking edges march; the focus reveal
+/// draws each on-path edge from nothing over 500ms, staggered 250ms in hop order.
 class _EdgePainter extends CustomPainter {
   final List<GraphEdge> edges;
-  final Map<String, Offset> pos;
-  final String? selected;
-  final _GovernanceOverlay overlay;
-  final Color dimColor;
-  _EdgePainter({required this.edges, required this.pos, required this.selected,
-      required this.overlay, required this.dimColor});
+  final Map<String, _Placed> positions;
+  final List<GraphEdge> pathEdges;
+  final bool focusing;
+  final double dash;
+  final double reveal;
+  final bool reduce;
+
+  _EdgePainter({
+    required this.edges,
+    required this.positions,
+    required this.pathEdges,
+    required this.focusing,
+    required this.dash,
+    required this.reveal,
+    required this.reduce,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final e in edges) {
-      final from = pos[e.from];
-      final to = pos[e.to];
+      final from = positions[e.from];
+      final to = positions[e.to];
       if (from == null || to == null) continue;
-      final involved = selected == null || e.from == selected || e.to == selected;
 
-      final start = Offset(from.dx + _LayeredMap.cardW, from.dy + _LayeredMap.cardH / 2);
-      final end = Offset(to.dx, to.dy + _LayeredMap.cardH / 2);
-      final dx = (end.dx - start.dx).abs() * 0.5;
+      // Consumer -> provider reads left to right, so the source is the consumer's right edge.
+      final a = from.rightAnchor;
+      final b = to.leftAnchor;
+      final dx = (b.dx - a.dx).abs() / 2;
+      final path = Path()
+        ..moveTo(a.dx, a.dy)
+        ..cubicTo(a.dx + dx, a.dy, b.dx - dx, b.dy, b.dx, b.dy);
 
-      Path path = Path()
-        ..moveTo(start.dx, start.dy)
-        ..cubicTo(start.dx + dx, start.dy, end.dx - dx, end.dy, end.dx, end.dy);
-
-      final violation = overlay.severityFor(e.from, e.to);
-      Color color;
-      double width;
-      if (violation != null) {
-        color = violation == 'high' ? AppColors.breaking : AppColors.warning;
-        width = 2.2;
-        path = _dashed(path);
-      } else if (e.risk == 'breaking') {
-        color = AppColors.breaking;
-        width = 2.4;
-      } else if (e.risk == 'safe') {
-        color = AppColors.additive;
-        width = 1.4;
-      } else {
-        color = dimColor;
-        width = 1.2;
+      final onPath = pathEdges.contains(e);
+      if (focusing && !onPath) {
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1
+              ..color = Colors.white.withOpacity(0.05));
+        continue;
       }
 
-      final double opacity;
-      if (selected == null) {
-        opacity = violation != null ? 0.85 : (e.risk == 'breaking' ? 0.7 : 0.28);
-      } else {
-        opacity = involved ? 0.92 : (violation != null ? 0.25 : 0.06);
+      if (focusing && onPath) {
+        final i = pathEdges.indexOf(e);
+        final start = (0.10 + i * 0.25) / 1.55;
+        final end = start + (0.5 / 1.55);
+        final t = reduce ? 1.0 : ((reveal - start) / (end - start)).clamp(0.0, 1.0);
+        if (t <= 0) continue;
+        final drawn = _partial(path, t);
+        final breaking = e.risk == 'breaking';
+        canvas.drawPath(
+            drawn,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = breaking ? 2 : 1.6
+              ..color = breaking ? AppColors.breaking : AppColors.warning);
+        continue;
       }
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = involved && selected != null ? width + 0.6 : width
-        ..color = color.withOpacity(opacity);
-      canvas.drawPath(path, paint);
-      _arrowhead(canvas, end, color.withOpacity(opacity));
+
+      switch (e.risk) {
+        case 'breaking':
+          _dashed(canvas, path,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.6
+                ..color = AppColors.breaking);
+          break;
+        case 'safe':
+          canvas.drawPath(
+              path,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.2
+                ..color = AppColors.additive.withOpacity(0.45));
+          break;
+        default:
+          canvas.drawPath(
+              path,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.1
+                ..color = Colors.white.withOpacity(0.12));
+      }
     }
   }
 
-  static void _arrowhead(Canvas canvas, Offset tip, Color color) {
-    const double len = 7;
-    const double half = 4;
-    final p = Path()
-      ..moveTo(tip.dx, tip.dy)
-      ..lineTo(tip.dx - len, tip.dy - half)
-      ..lineTo(tip.dx - len, tip.dy + half)
-      ..close();
-    canvas.drawPath(p, Paint()..color = color);
+  /// 7-on / 9-off marching dashes. The brief travels dashoffset to -320 over the 6s cycle — a
+  /// single 16px period per cycle reads as static, which is what it looked like before.
+  void _dashed(Canvas canvas, Path path, Paint paint) {
+    const on = 7.0, off = 9.0;
+    final phase = reduce ? 0.0 : -320.0 * dash;
+    for (final metric in path.computeMetrics()) {
+      double d = phase % (on + off);
+      if (d > 0) d -= (on + off);
+      while (d < metric.length) {
+        final s = math.max(d, 0.0);
+        final e = math.min(d + on, metric.length);
+        if (e > s) canvas.drawPath(metric.extractPath(s, e), paint);
+        d += on + off;
+      }
+    }
   }
 
-  static Path _dashed(Path source) {
+  Path _partial(Path path, double t) {
     final out = Path();
-    for (final metric in source.computeMetrics()) {
-      double d = 0;
-      while (d < metric.length) {
-        final len = math.min(8.0, metric.length - d);
-        out.addPath(metric.extractPath(d, d + len), Offset.zero);
-        d += 13;
-      }
+    for (final metric in path.computeMetrics()) {
+      out.addPath(metric.extractPath(0, metric.length * t), Offset.zero);
     }
     return out;
   }
 
   @override
   bool shouldRepaint(covariant _EdgePainter old) =>
-      old.selected != selected || old.edges != edges || old.overlay != overlay;
+      old.dash != dash || old.reveal != reveal || old.focusing != focusing;
 }
 
-class _Legend extends StatelessWidget {
-  const _Legend();
+class _NodeCard extends StatefulWidget {
+  final GraphNode node;
+  final bool focused;
+  final bool dimmed;
+  final bool breaking;
+
+  /// Every edge touching this node is app-to-app only — no endpoint or field detail.
+  final bool shallowOnly;
+  final AnimationController? breathe;
+  final VoidCallback onTap;
+  final VoidCallback onOpen;
+
+  const _NodeCard({
+    required this.node,
+    required this.focused,
+    required this.dimmed,
+    required this.breaking,
+    required this.shallowOnly,
+    required this.breathe,
+    required this.onTap,
+    required this.onOpen,
+  });
+
+  @override
+  State<_NodeCard> createState() => _NodeCardState();
+}
+
+class _NodeCardState extends State<_NodeCard> {
+  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
-    Widget chip(String layer) => Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 10, height: 10,
-                decoration: BoxDecoration(color: AppColors.forLayer(layer), shape: BoxShape.circle)),
-            const SizedBox(width: 5),
-            Text(AppColors.layerLabel(layer), style: Theme.of(context).textTheme.bodySmall),
+    final layer = AppColors.forLayer(widget.node.layer);
+    final borderColor = widget.focused
+        ? AppColors.breaking
+        : widget.dimmed
+            ? Colors.white.withOpacity(0.05)
+            : (widget.breaking
+                ? AppColors.breaking.withOpacity(0.45)
+                : (_hover ? layer.withOpacity(0.6) : layer.withOpacity(0.35)));
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onDoubleTap: widget.onOpen,
+        child: AnimatedContainer(
+          duration: AppMotion.fast,
+          curve: AppMotion.curve,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: widget.dimmed
+                ? AppColors.nodeOffPath
+                : (widget.focused ? const Color(0xFF171A23) : AppColors.nodeQuiet),
+            borderRadius: BorderRadius.circular(AppRadius.tile),
+            border: Border.all(color: borderColor, width: widget.focused ? 1.5 : 1),
+            boxShadow: widget.focused
+                ? [BoxShadow(color: AppColors.breaking.withOpacity(0.35), blurRadius: 60)]
+                : (widget.breaking
+                    ? [BoxShadow(color: AppColors.breaking.withOpacity(0.22), blurRadius: 40)]
+                    : null),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              LayerDot(widget.node.layer),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(widget.node.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: widget.focused ? FontWeight.w600 : FontWeight.w500,
+                      color: widget.dimmed ? AppColors.textSecondary : AppColors.text,
+                    )),
+              ),
+              if (widget.focused && widget.breathe != null)
+                _BreathingDot(controller: widget.breathe!)
+              else if (widget.breaking)
+                const Icon(Icons.warning_amber_rounded, size: 15, color: AppColors.breaking),
+              if (Pins.instance.isPinned(widget.node.id))
+                const Padding(
+                  padding: EdgeInsets.only(left: 6),
+                  child: Icon(Icons.push_pin, size: 12, color: AppColors.accentSoft),
+                ),
+            ]),
+            if (!widget.dimmed) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    widget.node.dependedOnBy > 0
+                        ? '${widget.node.dependedOnBy} consumer${widget.node.dependedOnBy == 1 ? "" : "s"}'
+                        : '${widget.node.dependsOn} dependenc${widget.node.dependsOn == 1 ? "y" : "ies"}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: monoData(size: 10.5),
+                  ),
+                ),
+                // Nothing here is field-level, so any field question about it is a "maybe".
+                if (widget.shallowOnly)
+                  Text('MAYBE',
+                      style: monoData(
+                          size: 9.5, color: AppColors.warning, weight: FontWeight.w500)),
+              ]),
+            ],
           ]),
-        );
-    return Expanded(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: ['APP', 'EXPERIENCE', 'PROCESS', 'SYSTEM', 'BACKEND'].map(chip).toList()),
+        ),
       ),
     );
   }
 }
 
-class _DetailPanel extends StatelessWidget {
-  final GraphNode node;
+class _BreathingDot extends StatelessWidget {
+  final AnimationController controller;
+  const _BreathingDot({required this.controller});
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: AppColors.breaking,
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.breaking.withOpacity(0.35 * (1 - controller.value)),
+                blurRadius: 0,
+                spreadRadius: 10 * controller.value,
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+/// Bottom-left: the estate's headline number and how deeply it can be answered.
+class _SummaryPanel extends StatelessWidget {
   final GraphDto graph;
-  final List<InsightFinding> findings;
-  final OpenFn? open;
-  final VoidCallback onClose;
-  final void Function(String) onSelect;
-  const _DetailPanel({required this.node, required this.graph, this.findings = const [],
-      this.open, required this.onClose, required this.onSelect});
+  const _SummaryPanel({required this.graph});
 
   @override
   Widget build(BuildContext context) {
-    final color = AppColors.forLayer(node.layer);
-    final downstream = graph.edges.where((e) => e.from == node.id).toList();
-    final consumers = graph.edges.where((e) => e.to == node.id).toList();
-    final nodeFindings = findings.where((f) => f.apis.contains(node.id)).toList();
-
-    return Container(
-      width: 320,
-      decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
-      ),
-      child: ListView(padding: const EdgeInsets.all(16), children: [
-        Row(children: [
-          Expanded(
-            child: Text(node.label,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-          ),
-          IconButton(tooltip: 'Close details', onPressed: onClose, icon: const Icon(Icons.close)),
-        ]),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(color: color.withOpacity(0.16), borderRadius: BorderRadius.circular(8)),
-          child: Text(AppColors.layerLabel(node.layer),
-              style: TextStyle(color: color, fontWeight: FontWeight.w800, letterSpacing: 0.3)),
-        ),
-        const SizedBox(height: 14),
-        Row(children: [
-          _stat(context, 'Depends on', node.dependsOn),
-          const SizedBox(width: 10),
-          _stat(context, 'Consumed by', node.dependedOnBy),
-        ]),
-        if (open != null) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.tonalIcon(
-              onPressed: () => open!(Tabs.apiHub, api: node.id),
-              icon: const Icon(Icons.open_in_full, size: 16),
-              label: const Text('Open in API hub'),
-            ),
-          ),
-        ],
-        if (nodeFindings.isNotEmpty) ...[
-          const Divider(height: 24),
-          _section(context, 'Governance findings'),
-          ...nodeFindings.map((f) {
-            final c = f.severity == 'high'
-                ? AppColors.breaking
-                : (f.severity == 'medium' ? AppColors.warning : AppColors.neutral);
-            return Tooltip(
-              message: f.detail,
-              waitDuration: const Duration(milliseconds: 400),
+    final breaking = graph.edges.where((e) => e.risk == 'breaking').length;
+    final c = graph.coverage;
+    final pct = c.dependencies == 0 ? 0 : (c.ratio * 100).round();
+    return SizedBox(
+      width: 266,
+      child: GlassPanel(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('$breaking',
+                style: statStyle(38,
+                    color: breaking > 0 ? AppColors.breaking : AppColors.additive)),
+            const SizedBox(width: 10),
+            Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: Container(width: 8, height: 8,
-                        decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(f.title, style: const TextStyle(fontSize: 12))),
-                ]),
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  breaking > 0
+                      ? 'breaking edge${breaking == 1 ? "" : "s"}\n'
+                          'across ${graph.nodes.length} nodes'
+                      : 'breaking edges —\nall ${graph.nodes.length} nodes clear',
+                  style: const TextStyle(
+                      fontSize: 12.5, height: 1.4, color: AppColors.textDim),
+                ),
               ),
-            );
-          }),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 14),
+          Row(children: [
+            const Text('Answer depth',
+                style: TextStyle(fontSize: 12, color: AppColors.textDim)),
+            const Spacer(),
+            Text('$pct%', style: monoData(size: 12, color: AppColors.text)),
+          ]),
+          const SizedBox(height: 8),
+          _DepthBar(coverage: c, height: 4),
+        ]),
+      ),
+    );
+  }
+}
+
+/// The stacked answer-depth bar: field-level, endpoint-level, then the unknown remainder.
+class _DepthBar extends StatelessWidget {
+  final GraphCoverage coverage;
+  final double height;
+  const _DepthBar({required this.coverage, required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    final field = math.max(coverage.fieldLevel, 0);
+    final endpoint = math.max(coverage.endpointLevel - coverage.fieldLevel, 0);
+    final rest = math.max(coverage.shallow, 0);
+    if (field + endpoint + rest == 0) {
+      return SizedBox(
+        height: height,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(2)),
+        ),
+      );
+    }
+    return SizedBox(
+      height: height,
+      child: Row(children: [
+        if (field > 0)
+          Expanded(flex: field, child: _seg(AppColors.additive)),
+        if (endpoint > 0) ...[
+          if (field > 0) const SizedBox(width: 2),
+          Expanded(flex: endpoint, child: _seg(AppColors.experience)),
         ],
-        if (node.ownerTeam != null || node.reviewers.isNotEmpty) ...[
-          const Divider(height: 24),
-          if (node.ownerTeam != null) _kv(context, 'Owner team', node.ownerTeam!),
-          if (node.reviewers.isNotEmpty)
-            _kv(context, 'Reviewers', node.reviewers.map((r) => r.replaceAll('gh:', '')).join(', ')),
-        ],
-        if (downstream.isNotEmpty) ...[
-          const Divider(height: 24),
-          _section(context, 'Depends on (downstream)'),
-          ...downstream.map((e) => _edgeTile(context, e.to, e.risk, e.via)),
-        ],
-        if (consumers.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _section(context, 'Consumed by (blast radius)'),
-          ...consumers.map((e) => _edgeTile(context, e.from, e.risk, e.via)),
-        ],
-        if (downstream.isEmpty && consumers.isEmpty) ...[
-          const Divider(height: 24),
-          Text('Independent — no recorded dependencies yet.',
-              style: Theme.of(context).textTheme.bodySmall),
+        if (rest > 0) ...[
+          if (field > 0 || endpoint > 0) const SizedBox(width: 2),
+          Expanded(flex: rest, child: _seg(Colors.white.withOpacity(0.12))),
         ],
       ]),
     );
   }
 
-  Widget _stat(BuildContext context, String label, int value) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(10),
-          ),
+  Widget _seg(Color c) => DecoratedBox(
+        decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2)),
+      );
+}
+
+/// Right rail: what needs a decision, then what changed since the last visit.
+class _AttentionStack extends StatelessWidget {
+  final Future<List<InsightFinding>> insights;
+  final GraphDto graph;
+  final bool governance;
+  final ValueChanged<String> onOpen;
+  const _AttentionStack({
+    required this.insights,
+    required this.graph,
+    required this.governance,
+    required this.onOpen,
+  });
+
+  static IconData _icon(String rule) => switch (rule) {
+        'upward-call' => Icons.u_turn_left,
+        'layer-skip' => Icons.redo,
+        'dependency-cycle' => Icons.loop,
+        'change-hotspot' => Icons.local_fire_department_outlined,
+        _ => Icons.info_outline,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = graph.nodes.where((n) => n.api).map((n) => n.id).toList();
+    final delta = EstateDelta.since(ids);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (governance)
+        FutureBuilder<List<InsightFinding>>(
+          future: insights,
+          builder: (context, snap) {
+            final findings = snap.data ?? const <InsightFinding>[];
+            if (findings.isEmpty) return const SizedBox.shrink();
+            final high = findings.where((f) => f.severity == 'high').length;
+            return GlassPanel(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Text('NEEDS A DECISION', style: monoLabel()),
+                  const Spacer(),
+                  if (high > 0) StatusPill('$high HIGH', AppColors.breaking),
+                ]),
+                const SizedBox(height: 6),
+                for (final f in findings.take(3))
+                  InkWell(
+                    onTap: f.apis.isEmpty ? null : () => onOpen(f.apis.first),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: AppColors.hairlineSoft)),
+                      ),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Icon(_icon(f.rule),
+                            size: 16,
+                            color: f.severity == 'high'
+                                ? AppColors.breaking
+                                : (f.severity == 'medium'
+                                    ? AppColors.warning
+                                    : AppColors.textMuted)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(f.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12.5, height: 1.4)),
+                        ),
+                      ]),
+                    ),
+                  ),
+              ]),
+            );
+          },
+        ),
+      if (!delta.isEmpty) ...[
+        const SizedBox(height: 10),
+        GlassPanel(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('$value', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-            Text(label, style: Theme.of(context).textTheme.bodySmall),
+            Text('SINCE YOU LAST LOOKED', style: monoLabel()),
+            const SizedBox(height: 10),
+            for (final id in delta.added.take(3))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(children: [
+                  const Icon(Icons.add, size: 15, color: AppColors.additive),
+                  const SizedBox(width: 9),
+                  Expanded(
+                      child: Text(id,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5))),
+                ]),
+              ),
+            for (final id in delta.removed.take(2))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(children: [
+                  const Icon(Icons.remove, size: 15, color: AppColors.textFaint),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(id,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.textFaint,
+                            decoration: TextDecoration.lineThrough)),
+                  ),
+                ]),
+              ),
           ]),
         ),
-      );
+      ],
+    ]);
+  }
+}
 
-  Widget _kv(BuildContext context, String k, String v) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(width: 100, child: Text(k, style: Theme.of(context).textTheme.bodySmall)),
-          Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600))),
+class _ZoomCluster extends StatelessWidget {
+  final double scale;
+  final ValueChanged<double> onZoom;
+  final VoidCallback onFit;
+  const _ZoomCluster({required this.scale, required this.onZoom, required this.onFit});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(Widget child, VoidCallback? onTap) => InkWell(
+          onTap: onTap,
+          child: SizedBox(width: 34, height: 32, child: Center(child: child)),
+        );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.glassStrong,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.hairlineStrong),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          cell(const Icon(Icons.add, size: 18, color: AppColors.textSecondary),
+              () => onZoom(0.1)),
+          const Divider(height: 1),
+          cell(Text('${(scale * 100).round()}%', style: monoData(size: 10)), onFit),
+          const Divider(height: 1),
+          cell(const Icon(Icons.remove, size: 18, color: AppColors.textSecondary),
+              () => onZoom(-0.1)),
+          const Divider(height: 1),
+          cell(const Icon(Icons.fit_screen, size: 17, color: AppColors.textSecondary), onFit),
         ]),
-      );
+      ),
+    );
+  }
+}
 
-  Widget _section(BuildContext context, String t) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(t, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
-      );
+/// Bottom-centre: search, then the map's filter words.
+class _CommandBar extends StatelessWidget {
+  final bool governance;
+  final bool focusing;
+  final ValueChanged<bool> onGovernance;
+  final VoidCallback onExitFocus;
+  const _CommandBar({
+    required this.governance,
+    required this.focusing,
+    required this.onGovernance,
+    required this.onExitFocus,
+  });
 
-  Widget _edgeTile(BuildContext context, String name, String risk, List<String> via) => InkWell(
-        onTap: () => onSelect(name),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Container(width: 8, height: 8,
-                    decoration: BoxDecoration(color: AppColors.forRisk(risk), shape: BoxShape.circle)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600))),
-                if (risk == 'breaking')
-                  const Text('breaking', style: TextStyle(fontSize: 11, color: AppColors.breaking)),
-                const Icon(Icons.chevron_right, size: 16),
-              ]),
+  @override
+  Widget build(BuildContext context) {
+    Widget word(String label, {bool active = false, VoidCallback? onTap}) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(5),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            child: Text(label,
+                style: monoData(
+                    size: 11,
+                    color: active ? AppColors.accentSoft : AppColors.textMuted)),
+          ),
+        );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 12))],
+      ),
+      child: GlassPanel(
+        radius: 14,
+        strong: true,
+        border: AppColors.hairlineStrong,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.search, size: 17, color: AppColors.textFaint),
+          const SizedBox(width: 14),
+          const SizedBox(
+            width: 260,
+            child: Text('Search APIs, endpoints, fields…',
+                style: TextStyle(fontSize: 13, color: AppColors.textFaint)),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.hairlineStrong),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text('⌘K', style: monoData(size: 10)),
+          ),
+          const SizedBox(width: 14),
+          Container(width: 1, height: 20, color: AppColors.hairlineStrong),
+          const SizedBox(width: 14),
+          word('GOVERNANCE', active: governance, onTap: () => onGovernance(!governance)),
+          const SizedBox(width: 8),
+          word('RISK'),
+          const SizedBox(width: 8),
+          word('LAYERS'),
+          const SizedBox(width: 8),
+          word('FOCUS MODE', active: focusing, onTap: focusing ? onExitFocus : null),
+        ]),
+      ),
+    );
+  }
+}
 
-              ...via.map((v) => Padding(
-                    padding: const EdgeInsets.only(left: 16, top: 2),
-                    child: Text(v, style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontFamily: 'monospace',
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                  )),
-            ],
+/// Focus mode replaces the nav bar: what is focused, how far it reaches, and the way out.
+/// The top bar in focus mode. Lives here beside the canvas it describes, but is rendered by the
+/// shell so it genuinely replaces the nav bar instead of hiding behind it.
+class FocusBar extends StatelessWidget {
+  final String api;
+  final FocusDirection direction;
+  final ValueChanged<FocusDirection>? onDirection;
+  final int hops;
+  final int nodes;
+  final VoidCallback onClose;
+  final VoidCallback onHub;
+
+  const FocusBar({
+    super.key,
+    required this.api,
+    this.direction = FocusDirection.downstream,
+    this.onDirection,
+    required this.hops,
+    required this.nodes,
+    required this.onClose,
+    required this.onHub,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget seg(String label, FocusDirection d) => InkWell(
+          onTap: onDirection == null ? null : () => onDirection!(d),
+          borderRadius: BorderRadius.circular(7),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: direction == d ? const Color(0x0FFFFFFF) : Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Text(label,
+                style: monoData(
+                    size: 11,
+                    color: direction == d ? AppColors.text : AppColors.textMuted)),
+          ),
+        );
+
+    return GlassPanel(
+      strong: true,
+      border: AppColors.accent.withOpacity(0.28),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: SizedBox(
+        height: 50,
+        child: Row(children: [
+          const Icon(Icons.center_focus_strong, size: 18, color: AppColors.accentSoft),
+          const SizedBox(width: 9),
+          Flexible(
+            child: Text('Focus · $api',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 16),
+          Container(width: 1, height: 20, color: AppColors.hairlineStrong),
+          const SizedBox(width: 16),
+          Flexible(
+            child: Text('$hops hop${hops == 1 ? "" : "s"} · $nodes nodes on the path',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: monoData(size: 11.5, color: AppColors.textMuted)),
+          ),
+          const Spacer(),
+          seg('DOWNSTREAM', FocusDirection.downstream),
+          seg('UPSTREAM', FocusDirection.upstream),
+          seg('BOTH', FocusDirection.both),
+          const SizedBox(width: 12),
+          FilledButton(onPressed: onHub, child: const Text('Open API hub')),
+          const SizedBox(width: 6),
+          IconButton(
+            onPressed: onClose,
+            icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
+            tooltip: 'Exit focus  (Esc)',
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// The point of focus mode: the list of people this change obliges you to contact.
+class _WhoToTell extends StatelessWidget {
+  final ApiClient api;
+  final String apiId;
+  final GraphDto graph;
+  const _WhoToTell({required this.api, required this.apiId, required this.graph});
+
+  @override
+  Widget build(BuildContext context) {
+    final consumers = graph.edges.where((e) => e.to == apiId).toList();
+    return GlassPanel(
+      strong: true,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('WHO YOU HAVE TO TELL', style: monoLabel()),
+        const SizedBox(height: 12),
+        if (consumers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Nothing depends on this API yet.',
+                style: monoData(size: 11, color: AppColors.textMuted)),
+          ),
+        for (final e in consumers.take(5))
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.hairlineSoft)),
+            ),
+            child: Row(children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: e.risk == 'breaking' ? AppColors.breaking : AppColors.warning,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(e.from,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500)),
+                  Text(
+                      e.fieldLevel
+                          ? 'reads specific fields'
+                          : (e.endpointLevel
+                              ? 'endpoint-level only'
+                              : 'no field data — ask them'),
+                      style: monoData(size: 10.5)),
+                ]),
+              ),
+            ]),
+          ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              final b = StringBuffer('Heads-up: $apiId is changing\n');
+              for (final e in consumers) {
+                b.writeln('  [ ] ${e.from} — ${e.fieldLevel ? "reads fields" : "confirm impact"}');
+              }
+              Clipboard.setData(ClipboardData(text: b.toString()));
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Heads-up plan copied')));
+            },
+            icon: const Icon(Icons.checklist_rtl, size: 16),
+            label: const Text('Copy heads-up plan'),
           ),
         ),
-      );
+      ]),
+    );
+  }
+}
+
+/// First run (2e): the shape of what you are about to fill, drawn as dashed outlines, with the
+/// wizard docked at the bottom so the map is visible behind it the whole time.
+class _FirstRunCanvas extends StatelessWidget {
+  final ApiClient api;
+  final OpenFn? open;
+  final VoidCallback onDone;
+  const _FirstRunCanvas({required this.api, required this.open, required this.onDone});
+
+  @override
+  Widget build(BuildContext context) {
+    return _CanvasBackdrop(
+      bands: false,
+      child: Stack(children: [
+        Positioned.fill(child: CustomPaint(painter: _GhostEstatePainter())),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 96,
+          child: Column(children: [
+            const BrandMark(size: 34),
+            const SizedBox(height: 18),
+            Text('Let’s map your estate', style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 8),
+            const SizedBox(
+              width: 430,
+              child: Text(
+                'Two connections and one sync. Nothing here is a one-way door — you can change '
+                'any of it later from Sources.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, height: 1.6, color: AppColors.textMuted),
+              ),
+            ),
+          ]),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 40,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: SingleChildScrollView(
+                child: FirstRunWizard(api: api, open: open ?? (_, {api, endpoint, field}) {},
+                    onDone: onDone),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Dashed node outlines and dashed edges: the silhouette of an estate that has not been synced yet.
+class _GhostEstatePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withOpacity(0.12);
+    final cy = size.height * 0.42;
+    final slots = [
+      Rect.fromLTWH(size.width * 0.10, cy - 40, 110, 40),
+      Rect.fromLTWH(size.width * 0.10, cy + 40, 110, 40),
+      Rect.fromLTWH(size.width * 0.38, cy - 60, 200, 40),
+      Rect.fromLTWH(size.width * 0.38, cy + 20, 200, 40),
+      Rect.fromLTWH(size.width * 0.70, cy - 20, 160, 40),
+    ];
+    for (final r in slots) {
+      _dashedRRect(canvas, RRect.fromRectAndRadius(r, const Radius.circular(9)), stroke);
+    }
+  }
+
+  void _dashedRRect(Canvas canvas, RRect rrect, Paint paint) {
+    final path = Path()..addRRect(rrect);
+    for (final metric in path.computeMetrics()) {
+      double d = 0;
+      while (d < metric.length) {
+        canvas.drawPath(metric.extractPath(d, math.min(d + 4, metric.length)), paint);
+        d += 12;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GhostEstatePainter oldDelegate) => false;
 }

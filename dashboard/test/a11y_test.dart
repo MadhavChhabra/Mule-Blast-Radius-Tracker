@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:apiguard_dashboard/screens/graph_screen.dart';
 import 'package:apiguard_dashboard/screens/sources_screen.dart';
-import 'package:apiguard_dashboard/screens/home_screen.dart';
 
 import 'support/fake_api.dart';
 
@@ -13,12 +13,13 @@ void main() {
     expect(find.byTooltip('Remove repo'), findsOneWidget);
   });
 
-  testWidgets('Home stat tiles announce their value and label as one node', (tester) async {
+  testWidgets('Estate node cards are reachable as labelled controls', (tester) async {
     final handle = tester.ensureSemantics();
-    await pumpScreen(tester, HomeScreen(api: fakeApi(), open: noopOpen));
+    await pumpScreen(tester, GraphScreen(api: fakeApi(), open: noopOpen));
+    await tester.pump();
 
-    // The merged tile semantics read like "1 experience" rather than the number alone.
-    expect(find.bySemanticsLabel(RegExp(r'\d+ experience')), findsWidgets);
+    // Each node on the canvas is a real control a screen reader can land on and activate.
+    expect(find.bySemanticsLabel(RegExp(r'orders')), findsWidgets);
     handle.dispose();
   });
 }

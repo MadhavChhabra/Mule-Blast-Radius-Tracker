@@ -9,6 +9,7 @@ import '../theme.dart';
 import '../util/file_upload.dart';
 import '../widgets.dart';
 import '../widgets/global_search.dart';
+import '../widgets/hub_widgets.dart';
 import '../widgets/impact_list.dart';
 import '../widgets/skeleton.dart';
 import '../widgets/spec_diff.dart';
@@ -47,79 +48,131 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Ordered by what a developer opens this screen to do: check a change first, then read the
-    // relationships behind the answer, then look back at history.
+    if (_api == null) {
+      return EmptyState(
+        icon: Icons.search,
+        title: 'Pick an API to inspect',
+        message: 'Use the search palette (Ctrl/Cmd-K) or click any node on the estate map.',
+        action: FilledButton.icon(
+          onPressed: _pickApi,
+          icon: const Icon(Icons.search, size: 16),
+          label: const Text('Choose an API'),
+        ),
+      );
+    }
+    // The lineage strip gives orientation in 212px, so the answer column never competes with a
+    // second copy of the graph. Tabs are ordered by what a developer opens this screen to do.
     return DefaultTabController(
       length: 3,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _header(context),
-          const TabBar(tabs: [
-            Tab(text: 'Change impact'),
-            Tab(text: 'Relationships'),
-            Tab(text: 'History'),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        FutureBuilder<GraphDto>(
+          future: _graph,
+          builder: (context, snap) => snap.hasData
+              ? LineageStrip(
+                  apiId: _api!,
+                  graph: snap.data!,
+                  onOpen: (id) => setState(() => _api = id),
+                  onBack: () => widget.open?.call(Tabs.estate),
+                )
+              : Container(width: 212, color: AppColors.bar),
+        ),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _header(context),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28),
+              child: TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                tabs: [
+                  Tab(text: 'Change impact'),
+                  Tab(text: 'Relationships'),
+                  Tab(text: 'History'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(children: [
+                _ChangeImpactTab(api: widget.api, apiId: _api!),
+                _RelationshipsTab(
+                    api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
+                _HistoryTab(api: widget.api, apiId: _api!),
+              ]),
+            ),
           ]),
-          Expanded(
-            child: _api == null
-                ? EmptyState(
-                    icon: Icons.search,
-                    title: 'Pick an API to inspect',
-                    message: 'Use “Change API” above or the search palette (Ctrl/Cmd-K) to choose one.',
-                    action: FilledButton.icon(
-                      onPressed: _pickApi,
-                      icon: const Icon(Icons.search, size: 18),
-                      label: const Text('Choose an API'),
-                    ),
-                  )
-                : TabBarView(children: [
-                    _ChangeImpactTab(api: widget.api, apiId: _api!),
-                    _RelationshipsTab(
-                        api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
-                    _HistoryTab(api: widget.api, apiId: _api!),
-                  ]),
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
   Widget _header(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
-      child: Row(children: [
-        Icon(Icons.api, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_api ?? 'API', style: Theme.of(context).textTheme.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800)),
-            Text('Everything about this API — relationships, change impact, consumers, history.',
-                style: Theme.of(context).textTheme.bodySmall),
-          ]),
-        ),
-        if (_api != null)
-          AnimatedBuilder(
-            animation: Pins.instance,
-            builder: (context, _) {
-              final pinned = Pins.instance.isPinned(_api!);
-              return IconButton(
-                tooltip: pinned ? 'Unpin this API' : 'Pin this API — it leads the search palette',
-                onPressed: () => Pins.instance.toggle(_api!),
-                icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined,
-                    size: 20,
-                    color: pinned ? Theme.of(context).colorScheme.primary : null),
-              );
-            },
+      padding: const EdgeInsets.fromLTRB(28, 20, 28, 16),
+      child: LayoutBuilder(builder: (context, c) {
+        // Under ~700px the metadata line and the in-flight pill are the first things to go —
+        // the API name and the controls always survive.
+        final roomy = c.maxWidth > 700;
+        return Row(children: [
+          Flexible(
+            child: Text(_api ?? 'API',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineSmall),
           ),
-        if (_api != null) _AnypointLinksButton(api: widget.api, apiId: _api!),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: _pickApi,
-          icon: const Icon(Icons.search, size: 16),
-          label: const Text('Change API'),
-        ),
-      ]),
+          if (roomy) ...[
+            const SizedBox(width: 12),
+            FutureBuilder<GraphDto>(
+              future: _graph,
+              builder: (context, snap) {
+                if (!snap.hasData) return const SizedBox.shrink();
+                final broken = snap.data!.edges
+                    .where((e) => e.to == _api && e.risk == 'breaking')
+                    .length;
+                if (broken == 0) return const SizedBox.shrink();
+                return StatusPill('$broken BREAKING IN FLIGHT', AppColors.breakingText,
+                    bordered: true);
+              },
+            ),
+          ],
+          const Spacer(),
+          if (roomy)
+            FutureBuilder<GraphDto>(
+              future: _graph,
+              builder: (context, snap) {
+                if (!snap.hasData) return const SizedBox.shrink();
+                final node = snap.data!.nodes.where((n) => n.id == _api).firstOrNull;
+                if (node == null) return const SizedBox.shrink();
+                return Text(
+                    '${node.dependedOnBy} consumer${node.dependedOnBy == 1 ? "" : "s"} · '
+                    '${node.dependsOn} dependenc${node.dependsOn == 1 ? "y" : "ies"}',
+                    style: monoData(size: 11));
+              },
+            ),
+          const SizedBox(width: 12),
+          if (_api != null)
+            AnimatedBuilder(
+              animation: Pins.instance,
+              builder: (context, _) {
+                final pinned = Pins.instance.isPinned(_api!);
+                return IconButton(
+                  tooltip:
+                      pinned ? 'Unpin this API' : 'Pin this API — it leads the search palette',
+                  onPressed: () => Pins.instance.toggle(_api!),
+                  icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                      size: 20,
+                      color: pinned ? AppColors.accentSoft : AppColors.textMuted),
+                );
+              },
+            ),
+          if (_api != null && roomy) _AnypointLinksButton(api: widget.api, apiId: _api!),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: _pickApi,
+            tooltip: 'Change API  (Ctrl/Cmd-K)',
+            icon: const Icon(Icons.search, size: 18, color: AppColors.textMuted),
+          ),
+        ]);
+      }),
     );
   }
 }
@@ -323,18 +376,36 @@ class _EndpointsTabState extends State<_EndpointsTab> {
   Widget _directions(BuildContext context, EndpointInspect d) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(child: _col(context, Icons.north_west, AppColors.experience, 'Called by (upstream)',
-            d.calledBy.map((c) => _consumerRow(context, c.consumer, c.layer, c.viaEndpoint, c.fields)).toList(),
-            'Nothing calls this endpoint (that we have scanned).')),
-        const SizedBox(width: 16),
-        Expanded(child: _col(context, Icons.south_east, AppColors.system, 'Calls (downstream)',
+      child: LayoutBuilder(builder: (context, c) {
+        final upstream = _col(context, Icons.north_west, AppColors.experience,
+            'Called by (upstream)',
+            d.calledBy
+                .map((c) => _consumerRow(context, c.consumer, c.layer, c.viaEndpoint, c.fields))
+                .toList(),
+            'Nothing calls this endpoint (that we have scanned).');
+        final downstream = _col(context, Icons.south_east, AppColors.system,
+            'Calls (downstream)',
             [
               ...d.calls.map((p) => _producerRow(context, p.api, p.layer, p.endpoint, p.fields)),
-              ...d.appLevelCalls.map((p) => _producerRow(context, p.api, p.layer, p.endpoint, p.fields)),
+              ...d.appLevelCalls
+                  .map((p) => _producerRow(context, p.api, p.layer, p.endpoint, p.fields)),
             ],
-            'This endpoint calls nothing downstream.')),
-      ]),
+            'This endpoint calls nothing downstream.');
+        // Side by side is the point — but below ~620px the two columns squeeze the identifiers
+        // into ellipses, so they stack instead.
+        if (c.maxWidth < 620) {
+          return Column(children: [
+            SizedBox(height: 200, child: upstream),
+            const SizedBox(height: 12),
+            SizedBox(height: 200, child: downstream),
+          ]);
+        }
+        return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: upstream),
+          const SizedBox(width: 16),
+          Expanded(child: downstream),
+        ]);
+      }),
     );
   }
 
@@ -624,26 +695,8 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
             ? '${r.advisory.recommendedBump} · ${r.advisory.currentVersion} → ${r.advisory.nextVersion}'
             : r.advisory.recommendedBump);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        _stat(context, 'Risk', '${r.advisory.riskLevel} · ${r.advisory.riskScore}/100', riskColor),
-        const SizedBox(width: 10),
-        _stat(context, 'Version', versionText, Theme.of(context).colorScheme.primary),
-      ]),
-      const SizedBox(height: 10),
-      Row(children: [
-        _stat(context, 'Breaking', '${r.summary.breaking}', AppColors.breaking),
-        const SizedBox(width: 8),
-        _stat(context, 'Safe', '${r.summary.safe}', AppColors.safe),
-        const SizedBox(width: 8),
-        _stat(context, 'Additive', '${r.summary.additive}', AppColors.additive),
-      ]),
-      if (r.summary.impactedConsumers > 0)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text('${r.summary.impactedConsumers} downstream consumer(s) impacted',
-              style: const TextStyle(color: AppColors.breaking, fontWeight: FontWeight.w700)),
-        ),
-      const SizedBox(height: 12),
+      VerdictCard(result: r, riskColor: riskColor, versionText: versionText),
+      const SizedBox(height: 16),
       ImpactList(r.impacts),
       const SizedBox(height: 12),
       Card(
@@ -686,22 +739,6 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
       ),
     ]);
   }
-
-  Widget _stat(BuildContext context, String label, String value, Color color) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.4)),
-          ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
-          ]),
-        ),
-      );
 
   Widget _fields(BuildContext context, PropagationResult r) {
     final shown = _onlyImpacted ? r.items.where((f) => f.consumerCount > 0).toList() : r.items;
@@ -1281,7 +1318,7 @@ class _FieldChips extends StatelessWidget {
           for (final f in fields)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: AppColors.seed.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
               child: Text(f, style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
             ),
         ]),

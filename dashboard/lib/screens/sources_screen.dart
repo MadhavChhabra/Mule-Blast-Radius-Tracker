@@ -191,107 +191,159 @@ class _SourcesScreenState extends State<SourcesScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const ScreenHeader('Sources',
-            'Connect your Anypoint org and your repos. BlipRadius reads real relationships from both.'),
+            'Anypoint gives you the contracts. Repos give you the endpoints and fields. '
+            'You need both for a real answer.'),
         Expanded(
           child: AsyncView<SourcesStatus>(
             future: _status!,
-            builder: (context, s) => ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                _syncBar(context, s),
-                const SizedBox(height: 16),
-                _anypointCard(context, s),
-                const SizedBox(height: 16),
-                _reposCard(context, s),
-                if (_result != null) ...[
-                  const SizedBox(height: 16),
-                  _resultsCard(context, _result!),
-                ] else if (_busy && _progress != null && _progress!.repoResults.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-
-                  _resultsCard(context,
-                      SyncAllResult(false, null, _progress!.repoResults, 0, null)),
+            builder: (context, s) => LayoutBuilder(builder: (context, c) {
+              final main = ListView(
+                padding: const EdgeInsets.fromLTRB(40, 0, 40, 32),
+                children: [
+                  _syncBar(context, s),
+                  const SizedBox(height: 18),
+                  _anypointCard(context, s),
+                  const SizedBox(height: 18),
+                  _reposCard(context, s),
+                  if (_result != null) ...[
+                    const SizedBox(height: 18),
+                    _resultsCard(context, _result!),
+                  ] else if (_busy && _progress != null && _progress!.repoResults.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    _resultsCard(context,
+                        SyncAllResult(false, null, _progress!.repoResults, 0, null)),
+                  ],
                 ],
-                const SizedBox(height: 16),
-                _AuditCard(api: widget.api),
-              ],
-            ),
+              );
+              // The right rail explains what the sync buys you and what has happened recently;
+              // below ~1100px it folds under the main column instead of squeezing it.
+              if (c.maxWidth < 1100) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(40, 0, 40, 32),
+                  children: [
+                    _syncBar(context, s),
+                    const SizedBox(height: 18),
+                    _anypointCard(context, s),
+                    const SizedBox(height: 18),
+                    _reposCard(context, s),
+                    const SizedBox(height: 18),
+                    _SyncValueCard(status: s),
+                    const SizedBox(height: 14),
+                    _AuditCard(api: widget.api),
+                  ],
+                );
+              }
+              return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(child: main),
+                SizedBox(
+                  width: 360,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 40, 32),
+                    children: [
+                      _SyncValueCard(status: s),
+                      const SizedBox(height: 14),
+                      _AuditCard(api: widget.api),
+                    ],
+                  ),
+                ),
+              ]);
+            }),
           ),
         ),
       ],
     );
   }
 
+  /// Sync progress is the page, not a toast: while it runs this card owns the surface and says
+  /// exactly which repo is being read.
   Widget _syncBar(BuildContext context, SourcesStatus s) {
     final ready = s.anypointConfigured || s.repos.isNotEmpty;
+    final running = _busy && _progress != null;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.accent.withOpacity(0.14), AppColors.accent.withOpacity(0.03)],
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.accent.withOpacity(0.28)),
       ),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Sync everything', style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            Text(
-              ready
-                  ? 'Pulls the Anypoint catalog + contracts and scans every registered repo into one estate map.'
-                  : 'Connect Anypoint or add a repo below, then sync.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (_message != null) ...[
-              const SizedBox(height: 8),
-              Text(_message!, style: TextStyle(
-                  fontSize: 12, color: _error ? AppColors.breaking : AppColors.additive)),
-            ],
-            if (_busy && _progress != null) ...[
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  minHeight: 6,
-                  value: _progress!.reposTotal > 0
-                      ? (_progress!.reposDone / _progress!.reposTotal).clamp(0.0, 1.0)
-                      : null,
-                ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(running ? 'Building your estate map' : 'Sync everything',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text(
+                running
+                    ? 'Scanning Mule flows, property files and DataWeave lineage. You can keep '
+                        'working — the map fills in as it goes.'
+                    : (ready
+                        ? 'Pulls the Anypoint catalog and contracts, then scans every registered '
+                            'repo into one estate map.'
+                        : 'Connect Anypoint or add a repo below, then sync.'),
+                style: const TextStyle(fontSize: 12.5, height: 1.55, color: AppColors.textDim),
               ),
-              const SizedBox(height: 6),
-              Row(children: [
-                Expanded(
-                  child: Text(
-                    '${_progress!.phase ?? 'Syncing…'}'
-                    '${_progress!.reposTotal > 0 ? '  ·  ${_progress!.reposDone} / ${_progress!.reposTotal} repos' : ''}'
-                    '  ·  ${_elapsedLabel(_progress!.elapsed)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _cancelSync,
-                  icon: const Icon(Icons.stop_circle_outlined, size: 16),
-                  label: const Text('Cancel'),
-                ),
-              ]),
-            ],
-          ]),
-        ),
-        const SizedBox(width: 16),
-        FilledButton.icon(
-          onPressed: (!ready || _busy) ? null : _syncAll,
-          icon: _busy
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.sync),
-          label: const Text('Sync everything'),
-        ),
-        if (widget.open != null) ...[
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () => widget.open!(Tabs.graph),
-            icon: const Icon(Icons.hub_outlined, size: 16),
-            label: const Text('View map'),
+            ]),
           ),
+          const SizedBox(width: 14),
+          if (running)
+            OutlinedButton.icon(
+              onPressed: _cancelSync,
+              icon: const Icon(Icons.stop_circle_outlined, size: 16),
+              label: const Text('Cancel'),
+            )
+          else ...[
+            FilledButton.icon(
+              onPressed: (!ready || _busy) ? null : _syncAll,
+              icon: const Icon(Icons.sync, size: 16),
+              label: const Text('Sync everything'),
+            ),
+            if (widget.open != null) ...[
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => widget.open!(Tabs.estate),
+                icon: const Icon(Icons.hub_outlined, size: 16),
+                label: const Text('View map'),
+              ),
+            ],
+          ],
+        ]),
+        if (_message != null) ...[
+          const SizedBox(height: 12),
+          Text(_message!,
+              style: TextStyle(
+                  fontSize: 12, color: _error ? AppColors.breaking : AppColors.additive)),
+        ],
+        if (running) ...[
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              height: 5,
+              child: LinearProgressIndicator(
+                minHeight: 5,
+                backgroundColor: Colors.white.withOpacity(0.08),
+                valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                value: _progress!.reposTotal > 0
+                    ? (_progress!.reposDone / _progress!.reposTotal).clamp(0.0, 1.0)
+                    : null,
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Wrap(spacing: 14, runSpacing: 4, children: [
+            Text((_progress!.phase ?? 'SYNCING').toUpperCase(),
+                style: monoData(size: 11, color: AppColors.accentSoft)),
+            if (_progress!.reposTotal > 0)
+              Text('${_progress!.reposDone} / ${_progress!.reposTotal} REPOS',
+                  style: monoData(size: 11)),
+            Text('${_elapsedLabel(_progress!.elapsed).toUpperCase()} ELAPSED',
+                style: monoData(size: 11)),
+          ]),
         ],
       ]),
     );
@@ -733,6 +785,58 @@ class _AuditCardState extends State<_AuditCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The right rail on Sources: what a sync actually buys you, in the only unit that matters —
+/// how many dependencies move from "maybe reads this field" to a proven yes or no.
+class _SyncValueCard extends StatelessWidget {
+  final SourcesStatus status;
+  const _SyncValueCard({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final unscanned = status.repoDetails.where((d) => d.neverSynced).length;
+    return SolidPanel(
+      radius: AppRadius.card,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('WHAT THIS SYNC BUYS YOU', style: monoLabel()),
+        const SizedBox(height: 14),
+        if (status.repos.isEmpty)
+          const Text(
+            'No repos registered yet. Anypoint contracts tell you which apps call an API; only a '
+            'repo scan can tell you which fields they read.',
+            style: TextStyle(fontSize: 11.5, height: 1.55, color: AppColors.textMuted),
+          )
+        else ...[
+          Row(children: [
+            const Text('Registered repos',
+                style: TextStyle(fontSize: 12, color: AppColors.textDim)),
+            const Spacer(),
+            Text('${status.repos.length}', style: monoData(size: 12, color: AppColors.text)),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            const Text('Never scanned',
+                style: TextStyle(fontSize: 12, color: AppColors.textDim)),
+            const Spacer(),
+            Text('$unscanned',
+                style: monoData(
+                    size: 12,
+                    color: unscanned > 0 ? AppColors.warning : AppColors.additive)),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            unscanned > 0
+                ? '$unscanned repo${unscanned == 1 ? "" : "s"} have never been read. Each one turns '
+                    '"maybe reads this field" into a proven yes or no.'
+                : 'Every registered repo has been scanned at least once. Re-syncing picks up '
+                    'whatever changed since.',
+            style: const TextStyle(fontSize: 11.5, height: 1.55, color: AppColors.textMuted),
+          ),
+        ],
+      ]),
     );
   }
 }

@@ -29,8 +29,8 @@ class AsyncView<T> extends StatelessWidget {
   }
 }
 
-/// What kind of failure an API call hit, so the UI can say something useful
-/// instead of always blaming a stopped server.
+/// What kind of failure an API call hit, so the UI can say something useful instead of always
+/// blaming a stopped server.
 class ApiErrorInfo {
   final IconData icon;
   final Color color;
@@ -50,7 +50,7 @@ ApiErrorInfo describeApiError(Object error) {
       Icons.lock_outline,
       AppColors.warning,
       'This server needs an API key',
-      'Add your key with the key button in the sidebar, then retry.',
+      'Add your key with the key button in the top bar, then retry.',
       false,
     );
   }
@@ -75,8 +75,10 @@ ApiErrorInfo describeApiError(Object error) {
       AppColors.breaking,
       "Can't reach the BlipRadius server",
       apiBase.isEmpty
-          ? "The server isn't responding. Is it running?"
-          : 'No response from $apiBase. Is the server running?',
+          ? 'No response from this address. Nothing was lost — your last synced estate is '
+              'still on the server.'
+          : 'No response from $apiBase. Nothing was lost — your last synced estate is '
+              'still on the server.',
       true,
     );
   }
@@ -97,103 +99,206 @@ class ApiErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final info = describeApiError(error);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(info.icon, size: 40, color: info.color),
-            const SizedBox(height: 12),
-            Text(info.title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                textAlign: TextAlign.center),
-            const SizedBox(height: 6),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Text(info.detail,
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  textAlign: TextAlign.center),
-            ),
-            if (info.offline && apiBase.contains('localhost')) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  "./gradlew :server:bootRun --args='--spring.profiles.active=dev'",
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                ),
-              ),
-            ],
-            if (onRetry != null) ...[
-              const SizedBox(height: 16),
-              FilledButton.tonalIcon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Retry'),
-              ),
-            ],
-          ],
+    return _StateShell(
+      kicker: info.offline ? 'SERVER UNREACHABLE' : 'SOMETHING WENT WRONG',
+      children: [
+        Icon(info.icon, size: 30, color: info.color),
+        const SizedBox(height: 14),
+        Text(info.title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 7),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 330),
+          child: Text(info.detail,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12.5, height: 1.55, color: AppColors.textMuted)),
         ),
-      ),
+        if (info.offline && apiBase.contains('localhost')) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.fillSubtle,
+              borderRadius: BorderRadius.circular(AppRadius.chip),
+            ),
+            child: Text('./gradlew :server:bootRun', style: monoData(size: 11)),
+          ),
+        ],
+        if (onRetry != null) ...[
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Retry'),
+          ),
+        ],
+      ],
     );
   }
 }
 
-/// One consistent, calm placeholder for "there's nothing here yet" states across
-/// the app: a muted icon, a title, an optional explanation and an optional CTA.
+/// One calm placeholder for "there's nothing here yet". Every empty state names *why* it is empty
+/// and offers the one action that fixes it.
 class EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? message;
   final Widget? action;
-  const EmptyState(
-      {super.key, required this.icon, required this.title, this.message, this.action});
+  final String kicker;
+
+  /// Draws three dashed node outlines instead of an icon — used where the missing thing is
+  /// structure (endpoints, a map) rather than a record.
+  final bool ghostNodes;
+
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.message,
+    this.action,
+    this.kicker = 'NOTHING TO SHOW YET',
+    this.ghostNodes = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: muted.withOpacity(0.08), shape: BoxShape.circle),
-              child: Icon(icon, size: 30, color: muted),
-            ),
-            const SizedBox(height: 16),
-            Text(title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                textAlign: TextAlign.center),
-            if (message != null) ...[
-              const SizedBox(height: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Text(message!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted),
-                    textAlign: TextAlign.center),
-              ),
-            ],
-            if (action != null) ...[
-              const SizedBox(height: 18),
-              action!,
-            ],
-          ],
-        ),
-      ),
+    return _StateShell(
+      kicker: kicker,
+      children: [
+        if (ghostNodes)
+          Opacity(
+            opacity: 0.5,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              for (int i = 0; i < 3; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                CustomPaint(
+                  size: const Size(44, 22),
+                  painter: _DashedSlotPainter(),
+                ),
+              ],
+            ]),
+          )
+        else
+          Icon(icon, size: 30, color: AppColors.textMuted),
+        const SizedBox(height: 16),
+        Text(title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        if (message != null) ...[
+          const SizedBox(height: 7),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 340),
+            child: Text(message!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12.5, height: 1.55, color: AppColors.textMuted)),
+          ),
+        ],
+        if (action != null) ...[
+          const SizedBox(height: 16),
+          action!,
+        ],
+      ],
     );
   }
+}
+
+/// "All clear" is a real answer, not an absence of data — so it gets its own affirmative state.
+class AllClearState extends StatelessWidget {
+  final String title;
+  final String message;
+  final int? depthPercent;
+  const AllClearState({
+    super.key,
+    required this.title,
+    required this.message,
+    this.depthPercent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _StateShell(
+      kicker: 'ALL CLEAR',
+      children: [
+        const Icon(Icons.verified, size: 30, color: AppColors.additive),
+        const SizedBox(height: 14),
+        Text(title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 7),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: Text(message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12.5, height: 1.55, color: AppColors.textMuted)),
+        ),
+        if (depthPercent != null) ...[
+          const SizedBox(height: 14),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                  color: AppColors.additive, borderRadius: BorderRadius.circular(3)),
+            ),
+            const SizedBox(width: 7),
+            Text('ANSWER DEPTH $depthPercent%',
+                style: monoData(size: 10.5, color: AppColors.additive)),
+          ]),
+        ],
+      ],
+    );
+  }
+}
+
+/// Shared frame: a mono kicker pinned top-left, content centred beneath it.
+///
+/// Sized with a Stack rather than an Expanded so it is safe both on a bounded surface and inside a
+/// scrolling parent — these states get embedded in both.
+class _StateShell extends StatelessWidget {
+  final String kicker;
+  final List<Widget> children;
+  const _StateShell({required this.kicker, required this.children});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 240),
+          child: Stack(children: [
+            Positioned(top: 0, left: 0, child: Text(kicker, style: monoLabel())),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Column(mainAxisSize: MainAxisSize.min, children: children),
+              ),
+            ),
+          ]),
+        ),
+      );
+}
+
+class _DashedSlotPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withOpacity(0.2);
+    final path = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.width, size.height), const Radius.circular(7)));
+    for (final metric in path.computeMetrics()) {
+      double d = 0;
+      while (d < metric.length) {
+        canvas.drawPath(metric.extractPath(d, (d + 4).clamp(0, metric.length)), paint);
+        d += 10;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedSlotPainter oldDelegate) => false;
 }
 
 class ScreenHeader extends StatelessWidget {
@@ -205,25 +310,18 @@ class ScreenHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              ],
-            ),
-          ),
-          ...actions,
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(40, 28, 40, 18),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 4),
+            Text(subtitle,
+                style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.5)),
+          ]),
+        ),
+        ...actions,
+      ]),
     );
   }
 }

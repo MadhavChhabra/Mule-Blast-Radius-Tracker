@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
-import 'screens/home_screen.dart';
+import 'pins.dart';
 import 'screens/sources_screen.dart';
 import 'screens/graph_screen.dart';
 import 'screens/api_hub_screen.dart';
@@ -16,12 +16,17 @@ import 'widgets/shortcuts_help.dart';
 
 void main() => runApp(const ApiGuardApp());
 
+/// Four surfaces, not five: the comp makes the estate map the home surface, so what used to be a
+/// separate dashboard now docks onto the canvas as panels.
 class Tabs {
-  static const home = 0;
-  static const sources = 1;
-  static const graph = 2;
-  static const apiHub = 3;
-  static const changelog = 4;
+  static const estate = 0;
+  static const apiHub = 1;
+  static const changelog = 2;
+  static const sources = 3;
+
+  /// Kept so existing cross-navigation keeps compiling and routing sensibly.
+  static const home = estate;
+  static const graph = estate;
 }
 
 class NavTarget {
@@ -33,79 +38,24 @@ class NavTarget {
 
 typedef OpenFn = void Function(int index, {String? api, String? endpoint, String? field});
 
-/// Theme choice is a per-developer preference (bright office vs dark editor), so it is remembered
-/// in the browser rather than inferred once from the OS.
-class ThemeController extends ValueNotifier<ThemeMode> {
-  ThemeController() : super(_read());
-
-  static ThemeMode _read() {
-    switch (web_util.loadStoredSetting('themeMode')) {
-      case 'light':
-        return ThemeMode.light;
-      case 'dark':
-        return ThemeMode.dark;
-      default:
-        return ThemeMode.system;
-    }
-  }
-
-  void cycle() {
-    value = switch (value) {
-      ThemeMode.system => ThemeMode.light,
-      ThemeMode.light => ThemeMode.dark,
-      ThemeMode.dark => ThemeMode.system,
-    };
-    web_util.storeSetting('themeMode', value.name);
-  }
-
-  IconData get icon => switch (value) {
-        ThemeMode.system => Icons.brightness_auto_outlined,
-        ThemeMode.light => Icons.light_mode_outlined,
-        ThemeMode.dark => Icons.dark_mode_outlined,
-      };
-
-  String get label => switch (value) {
-        ThemeMode.system => 'Theme: follows your system',
-        ThemeMode.light => 'Theme: light',
-        ThemeMode.dark => 'Theme: dark',
-      };
-}
-
-class ApiGuardApp extends StatefulWidget {
+class ApiGuardApp extends StatelessWidget {
   const ApiGuardApp({super.key});
 
   @override
-  State<ApiGuardApp> createState() => _ApiGuardAppState();
-}
-
-class _ApiGuardAppState extends State<ApiGuardApp> {
-  final _theme = ThemeController();
-
-  @override
-  void dispose() {
-    _theme.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: _theme,
-      builder: (context, mode, _) => MaterialApp(
-        title: 'BlipRadius',
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(Brightness.light),
-        darkTheme: buildTheme(Brightness.dark),
-        themeMode: mode,
-        home: HomeShell(theme: _theme),
-      ),
+    return MaterialApp(
+      title: 'BlipRadius',
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(Brightness.dark),
+      darkTheme: buildTheme(Brightness.dark),
+      themeMode: ThemeMode.dark,
+      home: const HomeShell(),
     );
   }
 }
 
 class HomeShell extends StatefulWidget {
-  final ThemeController? theme;
-  const HomeShell({super.key, this.theme});
+  const HomeShell({super.key});
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -115,10 +65,10 @@ class _HomeShellState extends State<HomeShell> {
   final api = ApiClient();
   int _index = 0;
   NavTarget? _target;
-
-  static const _tabNames = ['home', 'sources', 'graph', 'hub', 'changelog'];
-
   bool _searchOpen = false;
+
+  static const _tabNames = ['estate', 'hub', 'changelog', 'sources'];
+  static const _labels = ['Estate', 'API hub', 'Changelog', 'Sources'];
 
   bool _handleKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
@@ -167,7 +117,9 @@ class _HomeShellState extends State<HomeShell> {
     final h = hash.startsWith('#') ? hash.substring(1) : hash;
     final parts = h.split('/').where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return null;
-    final idx = _tabNames.indexOf(parts[0]);
+    // Older links used /home and /graph; both now land on the estate canvas.
+    final name = switch (parts[0]) { 'home' || 'graph' => 'estate', final v => v };
+    final idx = _tabNames.indexOf(name);
     if (idx < 0) return null;
     final target = parts.length > 1 && idx == Tabs.apiHub
         ? NavTarget(api: Uri.decodeComponent(parts[1]))
@@ -202,22 +154,22 @@ class _HomeShellState extends State<HomeShell> {
     final saved = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.panel),
+          side: const BorderSide(color: AppColors.hairlineStrong),
+        ),
         title: const Text('Server access'),
         content: SizedBox(
           width: 380,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('If the BlipRadius server has API-key auth enabled '
-                '(apiguard.security.api-key), paste the key here. It is stored only in this '
-                'browser.'),
-            const SizedBox(height: 12),
+            const Text('If this BlipRadius server has API-key auth enabled, paste the key here. '
+                'It is stored only in this browser.'),
+            const SizedBox(height: 14),
             TextField(
               controller: ctrl,
               obscureText: true,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                labelText: 'API key (leave empty for open servers)',
-              ),
+              decoration: const InputDecoration(labelText: 'API key'),
             ),
           ]),
         ),
@@ -249,214 +201,226 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  late final List<_NavItem> _items = [
-    _NavItem('Home', 'Home', Icons.home_outlined,
-        (a, open, t) => HomeScreen(api: a, open: open)),
-    _NavItem('Sources', 'Sources', Icons.cable_outlined,
-        (a, open, t) => SourcesScreen(api: a, open: open)),
-    _NavItem('Estate map', 'Map', Icons.hub_outlined,
-        (a, open, t) => GraphScreen(api: a, open: open)),
-    _NavItem('API hub', 'API', Icons.api_outlined, (a, open, t) => ApiHubScreen(
-        key: ValueKey('hub:${t?.api}'), api: a, open: open, initialApi: t?.api)),
-    _NavItem('Changelog', 'Changes', Icons.history_edu_outlined,
-        (a, open, t) => ChangelogScreen(api: a)),
-  ];
-
-  // Below this width the rail plus a screen's own two-column content stops fitting, so navigation
-  // moves to a bottom bar and the rail's utilities move into a top bar.
-  static const double _compactBreakpoint = 840;
+  Widget _page() {
+    switch (_index) {
+      case Tabs.apiHub:
+        return ApiHubScreen(
+            key: ValueKey('hub:${_target?.api}'),
+            api: api,
+            open: _open,
+            initialApi: _target?.api);
+      case Tabs.changelog:
+        return ChangelogScreen(api: api);
+      case Tabs.sources:
+        return SourcesScreen(api: api, open: _open);
+      default:
+        return GraphScreen(api: api, open: _open);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) => constraints.maxWidth < _compactBreakpoint
-          ? _compactShell(context)
-          : _railShell(context),
-    );
-  }
-
-  Widget _compactShell(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final onCanvas = _index == Tabs.estate;
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 12,
-        backgroundColor: scheme.surface,
-        title: Row(children: [
-          Icon(Icons.shield_outlined, color: scheme.primary, size: 22),
-          const SizedBox(width: 8),
-          Text('BlipRadius',
-              style: TextStyle(fontWeight: FontWeight.w800, color: scheme.primary, fontSize: 16)),
-        ]),
-        actions: [
-          IconButton(
-            onPressed: _search,
-            icon: const Icon(Icons.search),
-            tooltip: 'Search APIs (Ctrl/Cmd-K)',
-          ),
-          IconButton(
-            onPressed: _serverKeyDialog,
-            icon: Icon(Icons.key_outlined,
-                color: ApiClient.apiKey == null ? null : scheme.primary),
-            tooltip: 'Server access (API key)',
-          ),
-          if (widget.theme != null)
-            IconButton(
-              onPressed: () => widget.theme!.cycle(),
-              icon: Icon(widget.theme!.icon),
-              tooltip: widget.theme!.label,
-            ),
-          const SizedBox(width: 4),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(child: _ServerStatus(api: api)),
-          ),
-        ],
-      ),
-      body: _animatedPage(context),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _go,
-        height: 64,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: _items
-            .map((it) => NavigationDestination(
-                icon: Icon(it.icon), label: it.shortLabel, tooltip: it.label))
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _railShell(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      body: Row(
-        children: [
-
-          LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: NavigationRail(
-                    selectedIndex: _index,
-                    onDestinationSelected: _go,
-                    labelType: NavigationRailLabelType.all,
-                    leading: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Column(
-                        children: [
-                          Icon(Icons.shield_outlined, color: scheme.primary, size: 30),
-                          const SizedBox(height: 4),
-                          Text('BlipRadius',
-                              style: TextStyle(fontWeight: FontWeight.w800, color: scheme.primary)),
-                          const SizedBox(height: 12),
-                          IconButton.filledTonal(
-                            onPressed: _search,
-                            icon: const Icon(Icons.search, size: 20),
-                            tooltip: 'Search APIs (Ctrl/Cmd-K)',
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          const SizedBox(height: 4),
-                          IconButton(
-                            onPressed: _serverKeyDialog,
-                            icon: Icon(Icons.key_outlined, size: 18,
-                                color: ApiClient.apiKey == null ? null : scheme.primary),
-                            tooltip: 'Server access (API key)',
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ],
-                      ),
-                    ),
-                    trailing: Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (widget.theme != null)
-                                IconButton(
-                                  onPressed: () => widget.theme!.cycle(),
-                                  icon: Icon(widget.theme!.icon, size: 18),
-                                  tooltip: widget.theme!.label,
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                              IconButton(
-                                onPressed: () => showShortcutsHelp(context),
-                                icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
-                                tooltip: 'Keyboard shortcuts (Ctrl/Cmd-/)',
-                                visualDensity: VisualDensity.compact,
-                              ),
-                              const SizedBox(height: 8),
-                              _ServerStatus(api: api),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    destinations: _items
-                        .map((it) => NavigationRailDestination(
-                            icon: Icon(it.icon), label: Text(it.label)))
-                        .toList(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(child: _animatedPage(context)),
-        ],
-      ),
-    );
-  }
-
-  Widget _animatedPage(BuildContext context) {
-    final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    final targetKey = _index == Tabs.apiHub ? (_target?.api ?? '') : '';
-    return AnimatedSwitcher(
-      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 200),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeIn,
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 0.015), end: Offset.zero)
-              .animate(animation),
-          child: child,
+      backgroundColor: onCanvas ? AppColors.canvas : AppColors.shell,
+      body: Stack(children: [
+        // The estate canvas runs full-bleed under its floating bar; framed surfaces sit below a
+        // solid one, so the bar is part of the page rather than hovering over content.
+        Positioned.fill(
+          top: onCanvas ? 0 : 52,
+          child: _page(),
         ),
-      ),
-      child: SizedBox.expand(
-        key: ValueKey('page:$_index:$targetKey'),
-        child: _items[_index].build(api, _open, _target),
-      ),
+        if (onCanvas)
+          Positioned(
+            left: 28,
+            right: 28,
+            top: 24,
+            // The brief is explicit: in focus mode the top bar *becomes* the focus bar. Drawing a
+            // second bar under this one just hid it.
+            child: AnimatedBuilder(
+              animation: FocusState.instance,
+              builder: (context, _) => FocusState.instance.active
+                  ? FocusBar(
+                      api: FocusState.instance.api!,
+                      hops: FocusState.instance.hops,
+                      nodes: FocusState.instance.nodes,
+                      onClose: () => FocusState.instance.onClose?.call(),
+                      onHub: () => FocusState.instance.onOpenHub?.call(),
+                    )
+                  : _TopBar(
+                      index: _index,
+                      labels: _labels,
+                      onSelect: _go,
+                      onSearch: _search,
+                      onKey: _serverKeyDialog,
+                      floating: true,
+                      api: api,
+                    ),
+            ),
+          )
+        else
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: _TopBar(
+              index: _index,
+              labels: _labels,
+              onSelect: _go,
+              onSearch: _search,
+              onKey: _serverKeyDialog,
+              floating: false,
+              api: api,
+            ),
+          ),
+      ]),
     );
   }
 }
 
-class _NavItem {
-  final String label;
-  final String shortLabel;
-  final IconData icon;
-  final Widget Function(ApiClient api, OpenFn open, NavTarget? target) build;
-  _NavItem(this.label, this.shortLabel, this.icon, this.build);
-}
-
-/// Small liveness indicator pinned to the bottom of the nav rail: a coloured
-/// dot plus the server version, polled so the operator can see at a glance
-/// whether the backend is reachable.
-class _ServerStatus extends StatefulWidget {
+/// The comp's chrome: one bar, two renditions. Floating glass over the estate; a solid ruled bar
+/// on the framed surfaces.
+class _TopBar extends StatelessWidget {
+  final int index;
+  final List<String> labels;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onSearch;
+  final VoidCallback onKey;
+  final bool floating;
   final ApiClient api;
-  const _ServerStatus({required this.api});
+
+  const _TopBar({
+    required this.index,
+    required this.labels,
+    required this.onSelect,
+    required this.onSearch,
+    required this.onKey,
+    required this.floating,
+    required this.api,
+  });
 
   @override
-  State<_ServerStatus> createState() => _ServerStatusState();
+  Widget build(BuildContext context) {
+    final content = Row(children: [
+      const BrandMark(size: 22),
+      const SizedBox(width: 9),
+      const Text('BlipRadius',
+          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: -0.2)),
+      const SizedBox(width: 16),
+      Container(width: 1, height: 20, color: AppColors.hairlineStrong),
+      const SizedBox(width: 16),
+      for (int i = 0; i < labels.length; i++) ...[
+        _NavPill(label: labels[i], selected: i == index, onTap: () => onSelect(i)),
+        const SizedBox(width: 6),
+      ],
+      const Spacer(),
+      _SyncStatus(api: api),
+      const SizedBox(width: 14),
+      _BarIcon(icon: Icons.search, tooltip: 'Search  Ctrl/Cmd-K', onTap: onSearch),
+      _BarIcon(
+        icon: Icons.vpn_key_outlined,
+        tooltip: 'Server access (API key)',
+        onTap: onKey,
+        active: ApiClient.apiKey != null,
+      ),
+      _BarIcon(
+          icon: Icons.keyboard_alt_outlined,
+          tooltip: 'Keyboard shortcuts  Ctrl/Cmd-/',
+          onTap: () => showShortcutsHelp(context)),
+      const SizedBox(width: 10),
+      FilledButton.icon(
+        onPressed: () => onSelect(Tabs.apiHub),
+        icon: const Icon(Icons.bolt, size: 16),
+        label: const Text('Check a change'),
+      ),
+    ]);
+
+    if (!floating) {
+      return Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 22),
+        decoration: const BoxDecoration(
+          color: AppColors.bar,
+          border: Border(bottom: BorderSide(color: AppColors.hairline)),
+        ),
+        child: content,
+      );
+    }
+    return GlassPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      radius: AppRadius.panel,
+      child: SizedBox(height: 52 - 2, child: content),
+    );
+  }
 }
 
-class _ServerStatusState extends State<_ServerStatus> {
+class _NavPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _NavPill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: AppMotion.fast,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0x12FFFFFF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+              color: selected ? AppColors.text : AppColors.textMuted,
+            )),
+      ),
+    );
+  }
+}
+
+class _BarIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool active;
+  const _BarIcon(
+      {required this.icon, required this.tooltip, required this.onTap, this.active = false});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(7),
+          child: Padding(
+            padding: const EdgeInsets.all(7),
+            child: Icon(icon,
+                size: 17, color: active ? AppColors.accentSoft : AppColors.textMuted),
+          ),
+        ),
+      );
+}
+
+/// The comp's live pulse: a blinking dot and the age of the last sync.
+class _SyncStatus extends StatefulWidget {
+  final ApiClient api;
+  const _SyncStatus({required this.api});
+
+  @override
+  State<_SyncStatus> createState() => _SyncStatusState();
+}
+
+class _SyncStatusState extends State<_SyncStatus> with SingleTickerProviderStateMixin {
   HealthInfo? _health;
   bool _error = false;
   Timer? _timer;
+  late final AnimationController _pulse =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 2400))..repeat();
 
   @override
   void initState() {
@@ -468,18 +432,14 @@ class _ServerStatusState extends State<_ServerStatus> {
   @override
   void dispose() {
     _timer?.cancel();
+    _pulse.dispose();
     super.dispose();
   }
 
   Future<void> _check() async {
     try {
       final h = await widget.api.health();
-      if (mounted) {
-        setState(() {
-          _health = h;
-          _error = false;
-        });
-      }
+      if (mounted) setState(() { _health = h; _error = false; });
     } catch (_) {
       if (mounted) setState(() => _error = true);
     }
@@ -488,21 +448,24 @@ class _ServerStatusState extends State<_ServerStatus> {
   @override
   Widget build(BuildContext context) {
     final up = _health != null && _health!.up && !_error;
-    final color = _error
-        ? AppColors.breaking
-        : (up ? AppColors.additive : AppColors.neutral);
-    final label = up ? 'v${_health!.version}' : (_error ? 'Offline' : '…');
+    final color = _error ? AppColors.breaking : (up ? AppColors.additive : AppColors.textFaint);
+    final label = _error ? 'OFFLINE' : (up ? 'CONNECTED · v${_health!.version}' : 'CHECKING…');
     return Tooltip(
-      message: up
-          ? 'Connected — BlipRadius server ${_health!.version}'
-          : (_error ? 'BlipRadius server unreachable' : 'Checking server…'),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 8, height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(height: 4),
-        Text(label,
-            style: TextStyle(
-                fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      message: _error
+          ? 'The BlipRadius server is unreachable'
+          : 'BlipRadius server ${_health?.version ?? ""}',
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        FadeTransition(
+          opacity: Tween<double>(begin: 1, end: 0.25).animate(
+              CurvedAnimation(parent: _pulse, curve: Curves.easeInOut)),
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Text(label, style: monoData(size: 10.5, color: AppColors.textFaint)),
       ]),
     );
   }
