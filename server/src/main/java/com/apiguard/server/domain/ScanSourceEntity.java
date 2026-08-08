@@ -28,6 +28,15 @@ public class ScanSourceEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "last_synced_at")
+    private Instant lastSyncedAt;
+
+    @Column(name = "last_apps")
+    private Integer lastApps;
+
+    @Column(name = "last_error", length = 1024)
+    private String lastError;
+
     protected ScanSourceEntity() {
     }
 
@@ -58,6 +67,26 @@ public class ScanSourceEntity {
 
     public void setCredential(String credential) {
         this.credential = credential;
+    }
+
+    public Instant getLastSyncedAt() {
+        return lastSyncedAt;
+    }
+
+    public Integer getLastApps() {
+        return lastApps;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void recordSync(Instant at, Integer apps, String error) {
+        this.lastSyncedAt = at;
+        this.lastApps = apps;
+        this.lastError = error == null || error.length() <= 1024
+                ? error
+                : error.substring(0, 1024);
     }
 
     public Instant getCreatedAt() {

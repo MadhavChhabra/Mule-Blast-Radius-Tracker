@@ -54,8 +54,25 @@ public class PropagationService {
                         }
                     });
                 }
-                items.add(new Dtos.PropagationField(endpoint, field, downstream.size(), confirmed,
-                        downstream, upstream));
+                items.add(new Dtos.PropagationField(endpoint, field, "response", downstream.size(),
+                        confirmed, downstream, upstream));
+            }
+        }
+
+        // Request fields: nothing can prove who sends what, but everyone who calls the endpoint has
+        // to change, so the answer is endpoint-level and certain rather than field-level and guessed.
+        for (Map.Entry<String, LinkedHashSet<String>> ep : SpecSurface.requestFields(parsed).entrySet()) {
+            String endpoint = ep.getKey();
+            List<Dtos.ConsumerDto> callers = resolver.downstreamOf(api, endpoint, null).stream()
+                    .map(Dtos.ConsumerDto::from).toList();
+            for (String field : ep.getValue()) {
+                fieldCount++;
+                if (!callers.isEmpty()) {
+                    impactedFields++;
+                    callers.forEach(c -> impactedConsumers.add(c.consumer()));
+                }
+                items.add(new Dtos.PropagationField(endpoint, field, "request", callers.size(),
+                        callers.size(), callers, List.of()));
             }
         }
 

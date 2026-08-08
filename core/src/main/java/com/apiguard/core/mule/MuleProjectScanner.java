@@ -14,8 +14,10 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -99,10 +101,14 @@ public final class MuleProjectScanner {
 
             Map<String, String> props = loadProperties(projectDir);
             Map<String, String> configToApi = collectConfigApis(muleDir, props, apiByKey, configDrift);
+            // Sub-flows are collected across the whole project first: a flow commonly reaches its
+            // real downstream call through <flow-ref> into a sub-flow declared in another file, and
+            // scanning files independently would miss every one of those dependencies.
+            Map<String, Element> subFlows = collectSubFlows(muleDir);
             try (Stream<Path> files = Files.walk(muleDir)) {
                 files.filter(p -> p.toString().endsWith(".xml"))
                         .sorted()
-                        .forEach(p -> scanFlowFile(p, apiByKey, configToApi, endpoints, orphanCalls));
+                        .forEach(p -> scanFlowFile(p, apiByKey, configToApi, subFlows, endpoints, orphanCalls));
             } catch (IOException e) {
                 throw new MuleScanException("Could not scan flows in " + muleDir, e);
             }
@@ -281,7 +287,55 @@ public final class MuleProjectScanner {
         return "zip".equalsIgnoreCase(type);
     }
 
+    /// Every `<sub-flow>` in the project, keyed by name, so `<flow-ref>` can be resolved.
+    static Map<String, Element> collectSubFlows(Path muleDir) {
+        Map<String, Element> out = new LinkedHashMap<>();
+        try (Stream<Path> files = Files.walk(muleDir)) {
+            files.filter(p -> p.toString().endsWith(".xml")).sorted().forEach(p -> {
+                try {
+                    Document doc = builder().parse(p.toFile());
+                    for (Element sub : elementsByLocalName(doc.getDocumentElement(), "sub-flow")) {
+                        String name = sub.getAttribute("name");
+                        if (name != null && !name.isBlank()) {
+                            out.putIfAbsent(name, sub);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // A malformed file must not sink the whole scan.
+                }
+            });
+        } catch (IOException ignored) {
+            return out;
+        }
+        return out;
+    }
+
+    /// Elements a flow actually executes: its own body plus anything reached through `<flow-ref>`,
+    /// depth-first, with a visited set so a recursive sub-flow cannot loop forever.
+    private static List<Element> withReferencedSubFlows(Element flow, Map<String, Element> subFlows) {
+        List<Element> bodies = new ArrayList<>();
+        Set<String> visited = new LinkedHashSet<>();
+        Deque<Element> pending = new ArrayDeque<>();
+        pending.push(flow);
+        while (!pending.isEmpty()) {
+            Element current = pending.pop();
+            bodies.add(current);
+            for (Element ref : elementsByLocalName(current, "flow-ref")) {
+                String target = ref.getAttribute("name");
+                if (target == null || target.isBlank() || !visited.add(target)) {
+                    continue;
+                }
+                Element sub = subFlows.get(target);
+                if (sub != null) {
+                    pending.push(sub);
+                }
+            }
+        }
+        return bodies;
+    }
+
     private static void scanFlowFile(Path file, Map<String, String> apiByKey, Map<String, String> configToApi,
+                                     Map<String, Element> subFlows,
                                      List<MuleScan.InboundEndpoint> endpoints,
                                      List<MuleScan.OutboundCall> orphanCalls) {
         try {
@@ -290,21 +344,30 @@ public final class MuleProjectScanner {
                 String name = flow.getAttribute("name");
                 List<MuleScan.OutboundCall> calls = new ArrayList<>();
                 List<Element> callElements = new ArrayList<>();
-                for (Element req : elementsByLocalName(flow, "request")) {
-                    MuleScan.OutboundCall call = toCall(req, apiByKey, configToApi);
-                    if (call != null) {
-                        calls.add(call);
-                        callElements.add(req);
+                List<Element> bodies = withReferencedSubFlows(flow, subFlows);
+                for (Element body : bodies) {
+                    for (Element req : elementsByLocalName(body, "request")) {
+                        MuleScan.OutboundCall call = toCall(req, apiByKey, configToApi);
+                        if (call != null) {
+                            calls.add(call);
+                            callElements.add(req);
+                        }
                     }
                 }
                 int httpCalls = calls.size();
 
-                collectBackendCalls(flow, calls);
+                for (Element body : bodies) {
+                    collectBackendCalls(body, calls);
+                }
 
-                attachResponseFields(flow, callElements, calls);
+                attachResponseFields(bodies, callElements, calls);
                 // Connector calls (db:, salesforce:, …) have no request element to anchor to, so they
                 // keep the flow-wide reading; they are end systems, never diffed against a spec.
-                List<String> flowFields = DataWeaveLineage.referencedFields(flow.getTextContent());
+                StringBuilder allText = new StringBuilder();
+                for (Element body : bodies) {
+                    allText.append(body.getTextContent()).append('\n');
+                }
+                List<String> flowFields = DataWeaveLineage.referencedFields(allText.toString());
                 if (!flowFields.isEmpty()) {
                     for (int i = httpCalls; i < calls.size(); i++) {
                         calls.set(i, calls.get(i).withFields(flowFields));
@@ -581,7 +644,7 @@ public final class MuleProjectScanner {
     /// `payload` after an `<http:request>` is that request's response, so DataWeave between one
     /// request and the next belongs to that call alone. Attributing the whole flow to every call
     /// would credit each downstream API with fields it never returned.
-    private static void attachResponseFields(Element flow, List<Element> callElements,
+    private static void attachResponseFields(List<Element> bodies, List<Element> callElements,
                                              List<MuleScan.OutboundCall> calls) {
         if (callElements.isEmpty()) {
             return;
@@ -590,7 +653,11 @@ public final class MuleProjectScanner {
         for (int i = 0; i < callElements.size(); i++) {
             segments.add(new StringBuilder());
         }
-        collectSegments(flow, callElements, segments, new int[]{-1});
+        // Each body restarts the walk: text in a sub-flow belongs to the call made inside it, not
+        // to whatever call happened to be last in the parent flow.
+        for (Element body : bodies) {
+            collectSegments(body, callElements, segments, new int[]{-1});
+        }
         for (int i = 0; i < callElements.size(); i++) {
             List<String> fields = DataWeaveLineage.referencedFields(segments.get(i).toString());
             if (!fields.isEmpty()) {

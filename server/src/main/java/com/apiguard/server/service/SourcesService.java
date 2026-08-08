@@ -4,6 +4,7 @@ import com.apiguard.core.mule.MuleScan;
 import com.apiguard.server.anypoint.AnypointClient;
 import com.apiguard.server.anypoint.AnypointCredentials;
 import com.apiguard.server.anypoint.AnypointSyncService;
+import com.apiguard.server.domain.RepoRevisionEntity;
 import com.apiguard.server.domain.ScanSourceEntity;
 import com.apiguard.server.repo.ScanSourceRepository;
 import com.apiguard.server.web.Dtos;
@@ -37,12 +38,18 @@ public class SourcesService {
     private final ScmOrgService scmOrg;
     private final RepoFetchService repoFetch;
     private final com.apiguard.server.config.CredentialCipher cipher;
+    private final com.apiguard.server.repo.RepoRevisionRepository revisions;
     private final int scanParallelism;
+    private final boolean incrementalScan;
 
     public SourcesService(ScanSourceRepository repos, ScanService scanService, AnypointClient anypointClient,
                           AnypointSyncService anypointSync, AnypointCredentials creds, ScmOrgService scmOrg,
                           RepoFetchService repoFetch, com.apiguard.server.config.CredentialCipher cipher,
-                          @Value("${apiguard.scan.parallelism:6}") int scanParallelism) {
+                          com.apiguard.server.repo.RepoRevisionRepository revisions,
+                          @Value("${apiguard.scan.parallelism:6}") int scanParallelism,
+                          @Value("${apiguard.scan.incremental:true}") boolean incrementalScan) {
+        this.revisions = revisions;
+        this.incrementalScan = incrementalScan;
         this.repos = repos;
         this.scanService = scanService;
         this.anypointClient = anypointClient;
@@ -79,13 +86,30 @@ public class SourcesService {
                                 List<RepoResult> repos, int totalApps, String note) {
     }
 
+    public record RepoSource(String url, String lastSyncedAt, Integer lastApps, String lastError) {
+    }
+
     public record Status(boolean anypointConfigured, String anypointOrg, String anypointEnv,
-                         String anypointBaseUrl, List<String> repos) {
+                         String anypointBaseUrl, List<String> repos, List<RepoSource> repoDetails) {
+    }
+
+    public String anypointOrgId() {
+        String configured = creds.orgId();
+        return configured == null || configured.isBlank() ? anypointClient.defaultOrgId() : configured;
+    }
+
+    public List<java.util.Map<String, Object>> anypointEnvironments(String orgId) {
+        return anypointClient.environments(orgId);
     }
 
     public Status status() {
+        List<RepoSource> details = repos.findAll().stream()
+                .map(s -> new RepoSource(s.getUrl(),
+                        s.getLastSyncedAt() == null ? null : s.getLastSyncedAt().toString(),
+                        s.getLastApps(), s.getLastError()))
+                .toList();
         return new Status(creds.isConfigured(), creds.orgId(), creds.environment(),
-                anypointClient.baseUrl(), repoUrls());
+                anypointClient.baseUrl(), details.stream().map(RepoSource::url).toList(), details);
     }
 
     public Status addRepo(String url) {
@@ -235,15 +259,49 @@ public class SourcesService {
         listener.phase(tasks.isEmpty() ? "No repos to scan" : "Scanning " + tasks.size() + " repo(s)…");
         Map<String, List<String>> undeclaredByApp = new LinkedHashMap<>();
         Map<String, List<String>> driftByApp = new LinkedHashMap<>();
-        int totalApps = runScans(tasks, repoResults, listener, undeclaredByApp, driftByApp);
+        List<String> unchangedRepos = new ArrayList<>();
+        int totalApps = runScans(tasks, repoResults, listener, undeclaredByApp, driftByApp, unchangedRepos);
 
+        recordPerSourceOutcome(repoResults.stream()
+                .filter(r -> !unchangedRepos.contains(r.url()))
+                .toList());
         String note = buildNote(anypointRan, anypoint, repoResults, totalApps, duplicates,
-                undeclaredByApp, driftByApp);
+                undeclaredByApp, driftByApp, unchangedRepos.size());
         log.info("Sync everything: anypointRan={} repos={} totalMuleApps={} duplicatesSkipped={} "
                         + "undeclaredApps={} configDriftApps={}",
                 anypointRan, repoResults.size(), totalApps, duplicates,
                 undeclaredByApp.size(), driftByApp.size());
         return new SyncAllResult(anypointRan, anypoint, repoResults, totalApps, note);
+    }
+
+    /// Folds each run's results back onto the registered source so the Sources list can say what a
+    /// repo last contributed. An org URL aggregates every repo it expanded to.
+    private void recordPerSourceOutcome(List<RepoResult> results) {
+        if (results.isEmpty()) {
+            return;
+        }
+        java.time.Instant now = java.time.Instant.now();
+        for (ScanSourceEntity source : repos.findAll()) {
+            String key = normalizeRepoUrl(source.getUrl());
+            int apps = 0;
+            int matched = 0;
+            String error = null;
+            for (RepoResult r : results) {
+                String rk = normalizeRepoUrl(r.url());
+                if (!rk.equals(key) && !rk.startsWith(key + "/")) {
+                    continue;
+                }
+                matched++;
+                apps += r.apps();
+                if (r.error() != null && error == null) {
+                    error = r.error();
+                }
+            }
+            if (matched > 0) {
+                source.recordSync(now, apps, error);
+                repos.save(source);
+            }
+        }
     }
 
     private record ScanTask(String displayUrl, String scanUrl) {
@@ -266,21 +324,81 @@ public class SourcesService {
         return s.endsWith(".git") ? s.substring(0, s.length() - 4) : s;
     }
 
+    /// HEAD of every task's remote, resolved in parallel. Null means "could not tell" — those
+    /// always get a full scan, so the optimisation can never silently drop a repo.
+    private List<String> currentHeads(List<ScanTask> tasks, ExecutorService pool) {
+        if (!incrementalScan) {
+            return tasks.stream().map(t -> (String) null).toList();
+        }
+        List<Future<String>> probes = tasks.stream()
+                .map(t -> pool.submit(() -> repoFetch.remoteHead(t.scanUrl())))
+                .toList();
+        List<String> heads = new ArrayList<>();
+        for (Future<String> probe : probes) {
+            try {
+                heads.add(probe.get());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                heads.add(null);
+            } catch (ExecutionException e) {
+                heads.add(null);
+            }
+        }
+        return heads;
+    }
+
+    private boolean isUnchanged(ScanTask task, String head) {
+        if (head == null) {
+            return false;
+        }
+        return revisions.findById(normalizeRepoUrl(task.scanUrl()))
+                .map(r -> head.equals(r.getCommitSha()))
+                .orElse(false);
+    }
+
+    private void rememberHead(ScanTask task, String head) {
+        if (head == null) {
+            return;
+        }
+        String key = normalizeRepoUrl(task.scanUrl());
+        revisions.findById(key).ifPresentOrElse(
+                existing -> {
+                    existing.update(head);
+                    revisions.save(existing);
+                },
+                () -> revisions.save(new RepoRevisionEntity(key, head)));
+    }
+
     private int runScans(List<ScanTask> tasks, List<RepoResult> repoResults, SyncListener listener,
                          Map<String, List<String>> undeclaredByApp,
-                         Map<String, List<String>> driftByApp) {
+                         Map<String, List<String>> driftByApp,
+                         List<String> unchangedRepos) {
         if (tasks.isEmpty()) {
             return 0;
         }
         int threads = Math.max(1, Math.min(scanParallelism, tasks.size()));
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         int totalApps = 0;
+        // Cloning a repo that has not moved since the last successful scan buys nothing, and on a
+        // hundred-repo org it is most of the runtime. ls-remote costs one round trip to decide.
+        List<String> heads = currentHeads(tasks, pool);
         try {
-            List<Future<List<MuleScan>>> futures = tasks.stream()
-                    .map(t -> pool.submit(() -> scanService.fetchAndScan(t.scanUrl())))
-                    .toList();
+            List<Future<List<MuleScan>>> futures = new ArrayList<>();
             for (int i = 0; i < tasks.size(); i++) {
                 ScanTask task = tasks.get(i);
+                futures.add(isUnchanged(task, heads.get(i))
+                        ? null
+                        : pool.submit(() -> scanService.fetchAndScan(task.scanUrl())));
+            }
+            for (int i = 0; i < tasks.size(); i++) {
+                ScanTask task = tasks.get(i);
+                if (futures.get(i) == null) {
+                    RepoResult unchanged = new RepoResult(task.displayUrl(), 0, List.of(), null);
+                    repoResults.add(unchanged);
+                    listener.repoFinished(unchanged);
+                    unchangedRepos.add(task.displayUrl());
+                    continue;
+                }
                 if (listener.isCancelled()) {
                     futures.get(i).cancel(true);
                     RepoResult skipped = new RepoResult(task.displayUrl(), 0, List.of(), "cancelled");
@@ -304,6 +422,7 @@ public class SourcesService {
                     }
                     row = new RepoResult(task.displayUrl(), r.apps(), names, null);
                     totalApps += r.apps();
+                    rememberHead(task, heads.get(i));
                 } catch (ExecutionException e) {
                     String msg = e.getCause() == null || e.getCause().getMessage() == null
                             ? "scan failed" : e.getCause().getMessage();
@@ -327,7 +446,8 @@ public class SourcesService {
     private static String buildNote(boolean anypointRan, AnypointSyncService.SyncResult anypoint,
                                     List<RepoResult> repos, int totalApps, int duplicates,
                                     Map<String, List<String>> undeclaredByApp,
-                                    Map<String, List<String>> driftByApp) {
+                                    Map<String, List<String>> driftByApp,
+                                    int unchanged) {
         List<String> failed = repos.stream().filter(r -> r.error() != null).map(RepoResult::url).toList();
         StringBuilder sb = new StringBuilder();
         if (anypointRan && anypoint == null) {
@@ -339,7 +459,10 @@ public class SourcesService {
         if (duplicates > 0) {
             sb.append(duplicates).append(" duplicate repo(s) skipped (already covered by an org URL). ");
         }
-        if (totalApps == 0 && !repos.isEmpty()) {
+        if (unchanged > 0) {
+            sb.append(unchanged).append(" repo(s) unchanged since the last sync — kept as they were. ");
+        }
+        if (totalApps == 0 && unchanged == 0 && !repos.isEmpty()) {
             sb.append("No Mule projects found in the repos (need pom.xml + src/main/mule). ");
         }
         if (anypoint != null && anypoint.rateLimited()) {

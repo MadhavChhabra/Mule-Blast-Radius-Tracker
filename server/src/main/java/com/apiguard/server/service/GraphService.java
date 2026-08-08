@@ -13,7 +13,9 @@ import com.apiguard.server.web.Dtos;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -32,6 +34,31 @@ public class GraphService {
         this.manifestService = manifestService;
         this.apis = apis;
         this.changes = changes;
+    }
+
+    /// Everything that ends up downwind of [api], walking consumer edges outward.
+    @Transactional(readOnly = true)
+    public Dtos.ReachDto reach(String api) {
+        Dtos.GraphDto graph = build();
+        Set<String> direct = new LinkedHashSet<>();
+        for (Dtos.GraphEdge e : graph.edges()) {
+            if (e.to().equalsIgnoreCase(api)) {
+                direct.add(e.from());
+            }
+        }
+        Set<String> seen = new LinkedHashSet<>(direct);
+        Deque<String> queue = new ArrayDeque<>(direct);
+        Set<String> transitive = new LinkedHashSet<>();
+        while (!queue.isEmpty()) {
+            String at = queue.poll();
+            for (Dtos.GraphEdge e : graph.edges()) {
+                if (e.to().equalsIgnoreCase(at) && !e.from().equalsIgnoreCase(api) && seen.add(e.from())) {
+                    transitive.add(e.from());
+                    queue.add(e.from());
+                }
+            }
+        }
+        return new Dtos.ReachDto(api, List.copyOf(direct), List.copyOf(transitive));
     }
 
     @Transactional(readOnly = true)

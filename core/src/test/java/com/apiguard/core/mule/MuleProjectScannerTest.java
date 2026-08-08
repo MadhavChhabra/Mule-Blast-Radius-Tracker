@@ -91,6 +91,58 @@ class MuleProjectScannerTest {
         }
     }
 
+    @Test
+    void followsFlowRefIntoSubFlowsInOtherFiles() throws java.io.IOException {
+
+        java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("apiguard-subflow-");
+        try {
+            write(dir, "pom.xml", """
+                    <project xmlns="http://maven.apache.org/POM/4.0.0">
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>com.acme</groupId><artifactId>orders-exp-api</artifactId><version>1.0.0</version>
+                    </project>
+                    """);
+            // The endpoint flow itself calls nothing — the real dependency is one flow-ref away,
+            // in a sub-flow declared in a different file. This is the common Mule layout.
+            write(dir, "src/main/mule/orders.xml", """
+                    <mule xmlns="http://www.mulesoft.org/schema/mule/core"
+                          xmlns:http="http://www.mulesoft.org/schema/mule/http">
+                      <flow name="get:\\orders\\(id):orders-exp-api-config">
+                        <flow-ref name="fetch-order"/>
+                      </flow>
+                    </mule>
+                    """);
+            write(dir, "src/main/mule/shared.xml", """
+                    <mule xmlns="http://www.mulesoft.org/schema/mule/core"
+                          xmlns:http="http://www.mulesoft.org/schema/mule/http"
+                          xmlns:db="http://www.mulesoft.org/schema/mule/db"
+                          xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                      <sub-flow name="fetch-order">
+                        <http:request method="GET" path="/orders/{id}" config-ref="Orders_Process_Config"/>
+                        <ee:transform>
+                          <ee:message><ee:set-payload><![CDATA[%dw 2.0
+                    output application/json
+                    ---
+                    { id: payload.orderId, who: payload.customerId }]]></ee:set-payload></ee:message>
+                        </ee:transform>
+                        <db:select config-ref="Audit_DB"/>
+                      </sub-flow>
+                    </mule>
+                    """);
+
+            MuleScan scan = MuleProjectScanner.scan(dir);
+            var calls = scan.endpoints().get(0).calls();
+
+            assertTrue(calls.stream().anyMatch(c -> "Database".equals(c.api())),
+                    () -> "backend call inside the sub-flow was missed: " + calls);
+            var http = calls.stream().filter(c -> !"Database".equals(c.api())).findFirst().orElseThrow();
+            assertTrue(http.fields().contains("orderId") && http.fields().contains("customerId"),
+                    () -> "DataWeave inside the sub-flow should give field lineage: " + http.fields());
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
     private static void write(java.nio.file.Path base, String rel, String content) throws java.io.IOException {
         java.nio.file.Path p = base.resolve(rel);
         java.nio.file.Files.createDirectories(p.getParent());

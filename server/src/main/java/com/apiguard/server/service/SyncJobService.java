@@ -27,7 +27,7 @@ public class SyncJobService {
 
     private final SourcesService sources;
     private final ExecutorService runner = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "wakegraph-sync");
+        Thread t = new Thread(r, "blipradius-sync");
         t.setDaemon(true);
         return t;
     });

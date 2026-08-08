@@ -83,6 +83,45 @@ public class RepoFetchService {
         }
     }
 
+    /// The remote's current HEAD, without cloning. Null when it cannot be read (private repo with
+    /// no token, network hiccup, not a git URL) — callers must then fall back to a full scan.
+    public String remoteHead(String url) {
+        if (!isGitUrl(url)) {
+            return null;
+        }
+        try {
+            requireSafeCloneUrl(url);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        try {
+            ProcessBuilder pb = new ProcessBuilder("git", "ls-remote", "--quiet", "--", url, "HEAD");
+            pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+            pb.environment().put("GCM_INTERACTIVE", "Never");
+            pb.environment().put("GIT_ASKPASS", "echo");
+            pb.redirectErrorStream(false);
+            Process p = pb.start();
+            String out;
+            try (var in = p.getInputStream()) {
+                out = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            if (!p.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
+            if (p.exitValue() != 0 || out.isBlank()) {
+                return null;
+            }
+            String first = out.strip().split("\\s+")[0];
+            return first.matches("[0-9a-fA-F]{7,64}") ? first : null;
+        } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     public void cleanup(Fetched fetched) {
         if (fetched == null || !fetched.temporary()) {
             return;
