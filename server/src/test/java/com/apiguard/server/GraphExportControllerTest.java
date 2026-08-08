@@ -21,9 +21,12 @@ class GraphExportControllerTest {
                         new Dtos.GraphNode("orders-sys-api", "orders-sys", "SYSTEM", true, 0, 1, null, List.of())
                 ),
                 List.of(
-                        new Dtos.GraphEdge("web", "orders-exp-api", "depends on", "safe", List.of("GET /orders")),
-                        new Dtos.GraphEdge("orders-exp-api", "orders-sys-api", "depends on", "breaking", List.of())
-                ));
+                        new Dtos.GraphEdge("web", "orders-exp-api", "depends on", "safe",
+                                List.of("GET /orders"), true, false),
+                        new Dtos.GraphEdge("orders-exp-api", "orders-sys-api", "depends on", "breaking",
+                                List.of(), false, false)
+                ),
+                new Dtos.GraphCoverage(2, 1, 0));
 
         Method m = GraphExportController.class.getDeclaredMethod("renderSvg", Dtos.GraphDto.class);
         m.setAccessible(true);

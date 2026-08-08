@@ -22,16 +22,17 @@ public final class Dtos {
 
     public record ConsumerDto(String consumer, String ownerTeam, List<String> reviewers,
                               String slackChannel, String sourceRepo, String matchedField,
-                              String lastSeenAt, Boolean discoveredOnly) {
+                              boolean fieldConfirmed, String lastSeenAt, Boolean discoveredOnly) {
         public static ConsumerDto from(BlastRadiusResolver.ConsumerImpact c) {
             return new ConsumerDto(c.consumer(), c.ownerTeam(), c.reviewers(),
-                    c.slackChannel(), c.sourceRepo(), c.matchedField(), null, null);
+                    c.slackChannel(), c.sourceRepo(), c.matchedField(), c.fieldConfirmed(), null, null);
         }
 
         public static ConsumerDto from(BlastRadiusResolver.ConsumerImpact c,
                                        String lastSeenAt, Boolean discoveredOnly) {
             return new ConsumerDto(c.consumer(), c.ownerTeam(), c.reviewers(),
-                    c.slackChannel(), c.sourceRepo(), c.matchedField(), lastSeenAt, discoveredOnly);
+                    c.slackChannel(), c.sourceRepo(), c.matchedField(), c.fieldConfirmed(),
+                    lastSeenAt, discoveredOnly);
         }
     }
 
@@ -99,13 +100,15 @@ public final class Dtos {
     public record ScanResultDto(int apps, List<MuleScanDto> scans) {
     }
 
-    public record PropagationField(String endpoint, String field, int consumerCount,
+    /// `confirmedCount` is the subset of `consumerCount` where discovered lineage proves the
+    /// consumer reads this field; the rest are consumers we have no field-level data for.
+    public record PropagationField(String endpoint, String field, int consumerCount, int confirmedCount,
                                    List<ConsumerDto> downstream, List<UpstreamDto> upstream) {
     }
 
     public record PropagationResponse(String api, String title, String version,
                                       int endpoints, int fields, int impactedFields, int impactedConsumers,
-                                      List<PropagationField> items) {
+                                      int unknownConsumers, List<PropagationField> items) {
     }
 
     public record EndpointProducer(String api, String layer, String endpoint, List<String> fields) {
@@ -124,9 +127,16 @@ public final class Dtos {
                             int dependsOn, int dependedOnBy, String ownerTeam, List<String> reviewers) {
     }
 
-    public record GraphEdge(String from, String to, String label, String risk, List<String> via) {
+    public record GraphEdge(String from, String to, String label, String risk, List<String> via,
+                            boolean endpointLevel, boolean fieldLevel) {
     }
 
-    public record GraphDto(List<GraphNode> nodes, List<GraphEdge> edges) {
+    /// How much of the estate is understood well enough to answer a field-level question.
+    /// An Anypoint contract only proves app-to-app; endpoint and field detail come from repo scans,
+    /// so this is the number that tells a user what registering more repos would buy them.
+    public record GraphCoverage(int dependencies, int endpointLevel, int fieldLevel) {
+    }
+
+    public record GraphDto(List<GraphNode> nodes, List<GraphEdge> edges, GraphCoverage coverage) {
     }
 }

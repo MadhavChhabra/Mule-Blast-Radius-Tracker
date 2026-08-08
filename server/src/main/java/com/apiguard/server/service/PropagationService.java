@@ -34,6 +34,7 @@ public class PropagationService {
         int fieldCount = 0;
         int impactedFields = 0;
         Set<String> impactedConsumers = new LinkedHashSet<>();
+        Set<String> unknownConsumers = new LinkedHashSet<>();
 
         for (Map.Entry<String, LinkedHashSet<String>> ep : surface.entrySet()) {
             String endpoint = ep.getKey();
@@ -43,21 +44,30 @@ public class PropagationService {
                         .map(Dtos.ConsumerDto::from).toList();
                 List<Dtos.UpstreamDto> upstream = resolver.upstreamOf(api, endpoint, field).stream()
                         .map(Dtos.UpstreamDto::from).toList();
+                int confirmed = (int) downstream.stream().filter(Dtos.ConsumerDto::fieldConfirmed).count();
                 if (!downstream.isEmpty()) {
                     impactedFields++;
-                    downstream.forEach(c -> impactedConsumers.add(c.consumer()));
+                    downstream.forEach(c -> {
+                        impactedConsumers.add(c.consumer());
+                        if (!c.fieldConfirmed()) {
+                            unknownConsumers.add(c.consumer());
+                        }
+                    });
                 }
-                items.add(new Dtos.PropagationField(endpoint, field, downstream.size(), downstream, upstream));
+                items.add(new Dtos.PropagationField(endpoint, field, downstream.size(), confirmed,
+                        downstream, upstream));
             }
         }
 
-        items.sort(Comparator.comparingInt(Dtos.PropagationField::consumerCount).reversed()
+        // Fields with proven readers first — those are the ones a developer must act on.
+        items.sort(Comparator.comparingInt(Dtos.PropagationField::confirmedCount).reversed()
+                .thenComparing(Comparator.comparingInt(Dtos.PropagationField::consumerCount).reversed())
                 .thenComparing(Dtos.PropagationField::endpoint)
                 .thenComparing(Dtos.PropagationField::field));
 
         String title = parsed.getInfo() != null ? parsed.getInfo().getTitle() : null;
         String version = parsed.getInfo() != null ? parsed.getInfo().getVersion() : null;
         return new Dtos.PropagationResponse(api, title, version, surface.size(), fieldCount,
-                impactedFields, impactedConsumers.size(), items);
+                impactedFields, impactedConsumers.size(), unknownConsumers.size(), items);
     }
 }

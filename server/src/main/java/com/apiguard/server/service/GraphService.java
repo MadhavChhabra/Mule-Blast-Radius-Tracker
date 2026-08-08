@@ -107,21 +107,38 @@ public class GraphService {
             }
         }
         List<Dtos.GraphEdge> edges = new ArrayList<>();
+        int endpointLevel = 0;
+        int fieldLevel = 0;
         for (Edge e : rawEdges) {
             List<String> via = new ArrayList<>();
-            viaMap.get(e).forEach((endpoint, fields) -> {
+            boolean hasEndpoint = false;
+            boolean hasFields = false;
+            for (var entry : viaMap.get(e).entrySet()) {
+                String endpoint = entry.getKey();
+                var fields = entry.getValue();
                 String label = endpoint.equals("*") ? "whole API" : endpoint;
+                if (!endpoint.equals("*")) {
+                    hasEndpoint = true;
+                }
                 if (!fields.isEmpty()) {
+                    hasFields = true;
                     label += " · " + String.join(", ", fields);
                 }
                 via.add(label);
-            });
+            }
+            if (hasEndpoint) {
+                endpointLevel++;
+            }
+            if (hasFields) {
+                fieldLevel++;
+            }
             Set<String> broken = brokenConsumersByProvider.get(e.to());
             String risk = broken == null ? "none" : (broken.contains(e.from()) ? "breaking" : "safe");
-            edges.add(new Dtos.GraphEdge(e.from(), e.to(), "depends on", risk, via));
+            edges.add(new Dtos.GraphEdge(e.from(), e.to(), "depends on", risk, via, hasEndpoint, hasFields));
         }
 
-        return new Dtos.GraphDto(new ArrayList<>(nodes.values()), edges);
+        return new Dtos.GraphDto(new ArrayList<>(nodes.values()), edges,
+                new Dtos.GraphCoverage(edges.size(), endpointLevel, fieldLevel));
     }
 
     private Set<String> brokenConsumers(BlastRadiusResolver resolver, String apiName) {
