@@ -171,6 +171,9 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _index = index;
       _target = NavTarget(api: api, endpoint: endpoint, field: field);
+      // Without this the flag stuck: after using "Check a change" once, every later jump — a node,
+      // a consumer row, a finding — kept landing on that mode instead of field lookup.
+      _checkChange = false;
     });
     _writeHash();
   }

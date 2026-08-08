@@ -19,7 +19,22 @@ class _ChangelogScreenState extends State<ChangelogScreen> {
   late Future<List<ChangelogEntry>> _future = widget.api.changelog();
   _Filter _filter = _Filter.all;
 
+  @override
+  void initState() {
+    super.initState();
+    // This screen stays alive across navigation, so a changelog written by an analysis while the
+    // user was elsewhere would never appear without being told.
+    ApiClient.estateRevision.addListener(_reload);
+  }
+
+  @override
+  void dispose() {
+    ApiClient.estateRevision.removeListener(_reload);
+    super.dispose();
+  }
+
   void _reload() {
+    if (!mounted) return;
     final next = widget.api.changelog();
     setState(() => _future = next);
   }

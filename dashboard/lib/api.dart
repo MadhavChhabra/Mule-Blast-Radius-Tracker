@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 final String apiBase = _resolveApiBase();
@@ -46,10 +47,16 @@ class ApiClient {
     return _graphCache!;
   }
 
+  /// Bumped whenever the estate is invalidated. Surfaces stay alive across navigation now, so
+  /// clearing the cache is not enough on its own — a live screen holding an old future would keep
+  /// showing pre-sync data until a full reload. Anything displaying the estate watches this.
+  static final ValueNotifier<int> estateRevision = ValueNotifier<int>(0);
+
   /// Findings are derived from the graph, so they expire together.
   void invalidateGraph() {
     _graphCache = null;
     _insightsCache = null;
+    estateRevision.value++;
   }
 
   Future<List<ApiInfo>> apis() async {
@@ -131,6 +138,9 @@ class ApiClient {
       'toLabel': toLabel ?? 'after',
       'notifyPr': false,
     });
+    // An analysis records changes, which drive edge risk on the map and add a changelog entry —
+    // both are live surfaces now, so they have to be told the estate's derived data moved.
+    invalidateGraph();
     return AnalyzeResult.fromJson(r);
   }
 

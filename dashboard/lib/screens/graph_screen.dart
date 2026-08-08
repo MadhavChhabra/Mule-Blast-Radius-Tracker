@@ -44,7 +44,20 @@ class _GraphScreenState extends State<GraphScreen> {
     super.initState();
     // A shared #/estate/<api> link lands straight in focus mode on that node.
     _focused = widget.initialFocus;
+    // The map outlives navigation now, so it has to be told when a sync has replaced the estate
+    // underneath it — otherwise you sync a new repo and the map still shows the old one.
+    ApiClient.estateRevision.addListener(_onEstateChanged);
     _load();
+  }
+
+  void _onEstateChanged() {
+    if (mounted) _load();
+  }
+
+  @override
+  void dispose() {
+    ApiClient.estateRevision.removeListener(_onEstateChanged);
+    super.dispose();
   }
 
   void _load() {
