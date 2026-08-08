@@ -8,6 +8,7 @@ import '../main.dart';
 import '../pins.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../widgets/global_search.dart';
 import '../widgets/skeleton.dart';
 import 'first_run.dart';
 
@@ -16,7 +17,10 @@ import 'first_run.dart';
 class GraphScreen extends StatefulWidget {
   final ApiClient api;
   final OpenFn? open;
-  const GraphScreen({super.key, required this.api, this.open});
+
+  /// Node to open focused, from a shared link.
+  final String? initialFocus;
+  const GraphScreen({super.key, required this.api, this.open, this.initialFocus});
 
   @override
   State<GraphScreen> createState() => _GraphScreenState();
@@ -32,10 +36,14 @@ class _GraphScreenState extends State<GraphScreen> {
   String? _focused;
   FocusDirection _direction = FocusDirection.downstream;
   bool _governance = true;
+  bool _riskOnly = false;
+  final Set<String> _hiddenLayers = {};
 
   @override
   void initState() {
     super.initState();
+    // A shared #/estate/<api> link lands straight in focus mode on that node.
+    _focused = widget.initialFocus;
     _load();
   }
 
@@ -46,6 +54,8 @@ class _GraphScreenState extends State<GraphScreen> {
     });
   }
 
+  /// The shell watches [FocusState] and mirrors it into the address bar, so the link stays
+  /// copy-pasteable without the canvas knowing about routing.
   void _focus(String? id) => setState(() => _focused = id);
 
   @override
@@ -86,9 +96,15 @@ class _GraphScreenState extends State<GraphScreen> {
           focused: _focused,
           direction: _direction,
           governance: _governance,
+          riskOnly: _riskOnly,
+          hiddenLayers: _hiddenLayers,
           onFocus: _focus,
           onDirection: (d) => setState(() => _direction = d),
           onGovernance: (v) => setState(() => _governance = v),
+          onRiskOnly: (v) => setState(() => _riskOnly = v),
+          onToggleLayer: (l) => setState(() {
+            if (!_hiddenLayers.remove(l)) _hiddenLayers.add(l);
+          }),
           open: widget.open,
         );
       },
@@ -244,9 +260,13 @@ class _Estate extends StatefulWidget {
   final String? focused;
   final FocusDirection direction;
   final bool governance;
+  final bool riskOnly;
+  final Set<String> hiddenLayers;
   final ValueChanged<String?> onFocus;
   final ValueChanged<FocusDirection> onDirection;
   final ValueChanged<bool> onGovernance;
+  final ValueChanged<bool> onRiskOnly;
+  final ValueChanged<String> onToggleLayer;
   final OpenFn? open;
 
   const _Estate({
@@ -256,9 +276,13 @@ class _Estate extends StatefulWidget {
     required this.focused,
     required this.direction,
     required this.governance,
+    required this.riskOnly,
+    required this.hiddenLayers,
     required this.onFocus,
     required this.onDirection,
     required this.onGovernance,
+    required this.onRiskOnly,
+    required this.onToggleLayer,
     required this.open,
   });
 
@@ -294,7 +318,11 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant _Estate old) {
     super.didUpdateWidget(old);
-    if (old.graph != widget.graph) _place();
+    if (old.graph != widget.graph ||
+        old.riskOnly != widget.riskOnly ||
+        old.hiddenLayers.length != widget.hiddenLayers.length) {
+      _place();
+    }
     if (old.focused != widget.focused) {
       if (widget.focused == null) {
         _reveal.reset();
@@ -314,12 +342,24 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// RISK narrows the map to the nodes actually on a breaking edge; LAYERS hides whole columns.
+  /// Both matter once an estate outgrows a single screen.
+  bool _passesFilters(GraphNode n) {
+    if (widget.hiddenLayers.contains(n.layer)) return false;
+    if (widget.riskOnly) {
+      return widget.graph.edges
+          .any((e) => e.risk == 'breaking' && (e.from == n.id || e.to == n.id));
+    }
+    return true;
+  }
+
   void _place() {
     _positions.clear();
     for (int i = 0; i < _Layout.layers.length; i++) {
       final layer = _Layout.layers[i];
-      final inLayer = widget.graph.nodes.where((n) => n.layer == layer).toList()
-        ..sort((a, b) => b.dependedOnBy.compareTo(a.dependedOnBy));
+      final inLayer =
+          widget.graph.nodes.where((n) => n.layer == layer && _passesFilters(n)).toList()
+            ..sort((a, b) => b.dependedOnBy.compareTo(a.dependedOnBy));
       for (int r = 0; r < inLayer.length; r++) {
         _positions[inLayer[r].id] = _Placed(
           inLayer[r],
@@ -330,7 +370,9 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
       }
     }
     // Anything with an unrecognised layer still needs somewhere to live.
-    final unplaced = widget.graph.nodes.where((n) => !_positions.containsKey(n.id)).toList();
+    final unplaced = widget.graph.nodes
+        .where((n) => !_positions.containsKey(n.id) && _passesFilters(n))
+        .toList();
     for (int r = 0; r < unplaced.length; r++) {
       _positions[unplaced[r].id] = _Placed(
         unplaced[r],
@@ -552,9 +594,17 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
             child: Center(
               child: _CommandBar(
                 governance: widget.governance,
+                riskOnly: widget.riskOnly,
+                hiddenLayers: widget.hiddenLayers,
                 focusing: focusing,
                 onGovernance: widget.onGovernance,
+                onRiskOnly: widget.onRiskOnly,
+                onToggleLayer: widget.onToggleLayer,
                 onExitFocus: () => widget.onFocus(null),
+                onSearch: () async {
+                  final sel = await showGlobalSearch(context, widget.api);
+                  if (sel != null) widget.onFocus(sel.api);
+                },
               ),
             ),
           ),
@@ -1115,14 +1165,24 @@ class _ZoomCluster extends StatelessWidget {
 /// Bottom-centre: search, then the map's filter words.
 class _CommandBar extends StatelessWidget {
   final bool governance;
+  final bool riskOnly;
+  final Set<String> hiddenLayers;
   final bool focusing;
   final ValueChanged<bool> onGovernance;
+  final ValueChanged<bool> onRiskOnly;
+  final ValueChanged<String> onToggleLayer;
   final VoidCallback onExitFocus;
+  final VoidCallback onSearch;
   const _CommandBar({
     required this.governance,
+    required this.riskOnly,
+    required this.hiddenLayers,
     required this.focusing,
     required this.onGovernance,
+    required this.onRiskOnly,
+    required this.onToggleLayer,
     required this.onExitFocus,
+    required this.onSearch,
   });
 
   @override
@@ -1149,29 +1209,39 @@ class _CommandBar extends StatelessWidget {
         border: AppColors.hairlineStrong,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.search, size: 17, color: AppColors.textFaint),
-          const SizedBox(width: 14),
-          const SizedBox(
-            width: 260,
-            child: Text('Search APIs, endpoints, fields…',
-                style: TextStyle(fontSize: 13, color: AppColors.textFaint)),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.hairlineStrong),
-              borderRadius: BorderRadius.circular(4),
+          // It looks exactly like a search box, so it has to behave like one.
+          InkWell(
+            onTap: onSearch,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.search, size: 17, color: AppColors.textFaint),
+                const SizedBox(width: 14),
+                const SizedBox(
+                  width: 250,
+                  child: Text('Search APIs, endpoints, fields…',
+                      style: TextStyle(fontSize: 13, color: AppColors.textFaint)),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.hairlineStrong),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text('⌘K', style: monoData(size: 10)),
+                ),
+              ]),
             ),
-            child: Text('⌘K', style: monoData(size: 10)),
           ),
           const SizedBox(width: 14),
           Container(width: 1, height: 20, color: AppColors.hairlineStrong),
           const SizedBox(width: 14),
           word('GOVERNANCE', active: governance, onTap: () => onGovernance(!governance)),
           const SizedBox(width: 8),
-          word('RISK'),
+          word('RISK', active: riskOnly, onTap: () => onRiskOnly(!riskOnly)),
           const SizedBox(width: 8),
-          word('LAYERS'),
+          _LayersMenu(hidden: hiddenLayers, onToggle: onToggleLayer),
           const SizedBox(width: 8),
           word('FOCUS MODE', active: focusing, onTap: focusing ? onExitFocus : null),
         ]),
@@ -1426,4 +1496,53 @@ class _GhostEstatePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GhostEstatePainter oldDelegate) => false;
+}
+
+/// LAYERS is a real filter, not a label: on a hundred-node estate hiding the layers you are not
+/// working in is the difference between a map and a wall.
+class _LayersMenu extends StatelessWidget {
+  final Set<String> hidden;
+  final ValueChanged<String> onToggle;
+  const _LayersMenu({required this.hidden, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Show or hide API-led layers',
+      position: PopupMenuPosition.over,
+      color: AppColors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.field),
+        side: const BorderSide(color: AppColors.hairlineStrong),
+      ),
+      onSelected: onToggle,
+      itemBuilder: (context) => [
+        for (final layer in _Layout.layers)
+          PopupMenuItem(
+            value: layer,
+            height: 38,
+            child: Row(children: [
+              Icon(
+                hidden.contains(layer) ? Icons.check_box_outline_blank : Icons.check_box,
+                size: 16,
+                color: hidden.contains(layer) ? AppColors.textGhost : AppColors.forLayer(layer),
+              ),
+              const SizedBox(width: 10),
+              Text(AppColors.layerBand(layer),
+                  style: monoData(
+                      size: 11,
+                      color: hidden.contains(layer) ? AppColors.textMuted : AppColors.text)),
+            ]),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: Text(
+          hidden.isEmpty ? 'LAYERS' : 'LAYERS · ${_Layout.layers.length - hidden.length}',
+          style: monoData(
+              size: 11, color: hidden.isEmpty ? AppColors.textMuted : AppColors.accentSoft),
+        ),
+      ),
+    );
+  }
 }

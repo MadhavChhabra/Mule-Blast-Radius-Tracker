@@ -1,3 +1,4 @@
+import '../theme.dart';
 import 'package:flutter/material.dart';
 
 Future<void> showShortcutsHelp(BuildContext context) {
@@ -30,7 +31,7 @@ class _ShortcutsHelpDialog extends StatelessWidget {
                   child: Text('Keyboard shortcuts',
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w800)),
+                          ?.copyWith(fontWeight: FontWeight.w600)),
                 ),
                 IconButton(
                   tooltip: 'Close',
@@ -87,7 +88,7 @@ class _Row extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final keyStyle = TextStyle(
-        fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.w700,
+        fontSize: 11, fontFamily: kMono, fontWeight: FontWeight.w700,
         color: scheme.onSurface);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),

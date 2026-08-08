@@ -49,7 +49,7 @@ class _ImpactCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(c.endpoint!,
-                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                          style: const TextStyle(fontFamily: kMono, fontSize: 12)),
                     ),
                   ),
               ],
@@ -76,7 +76,7 @@ class _ImpactCard extends StatelessWidget {
                         children: [
                           const TextSpan(
                               text: 'Ship it safely  ',
-                              style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.additive)),
+                              style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.additive)),
                           TextSpan(
                               text: c.remediation!,
                               style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),

@@ -360,7 +360,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Anypoint Platform', style: TextStyle(fontWeight: FontWeight.w800)),
+                const Text('Anypoint Platform', style: TextStyle(fontWeight: FontWeight.w600)),
                 Text(
                   s.anypointConfigured
                       ? 'Connected${s.anypointEnv != null && s.anypointEnv!.isNotEmpty ? ' · ${s.anypointEnv}' : ''} — Exchange catalog + API Manager contracts.'
@@ -428,7 +428,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Repos', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text('Repos', style: TextStyle(fontWeight: FontWeight.w600)),
                 Text('A repo URL, a whole GitHub org / Bitbucket workspace URL, or a local path. '
                     'Org URLs expand to every repo on sync. Flows + property files give per-endpoint detail. '
                     'A token in the URL is encrypted and kept server-side — the URL is stored and shown without it.',
@@ -464,7 +464,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(_repoIcon(d), size: 18, color: _repoColor(context, d)),
                 title:
-                    Text(_redact(url), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                    Text(_redact(url), style: const TextStyle(fontFamily: kMono, fontSize: 12)),
                 subtitle: Text(_repoStatusLine(d),
                     style: TextStyle(fontSize: 11, color: _repoColor(context, d))),
                 trailing: IconButton(
@@ -520,7 +520,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Last sync', style: TextStyle(fontWeight: FontWeight.w800)),
+          const Text('Last sync', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           if (r.anypoint != null)
             Text('Anypoint: ${r.anypoint!.exchangeAssets} API(s), ${r.anypoint!.contracts} contract(s), '
@@ -708,7 +708,7 @@ class _AuditCardState extends State<_AuditCard> {
       child: ExpansionTile(
         onExpansionChanged: (open) { if (open && _events == null) _load(); },
         leading: const Icon(Icons.receipt_long_outlined, size: 20),
-        title: const Text('Recent activity', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Recent activity', style: TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text('Audit log — who changed sources and ran analyses',
             style: Theme.of(context).textTheme.bodySmall),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -773,7 +773,7 @@ class _AuditCardState extends State<_AuditCard> {
                                 color: Theme.of(context).colorScheme.onSurfaceVariant)),
                           if (e.actor != null && e.actor!.isNotEmpty)
                             Text(e.actor!, style: TextStyle(fontSize: 10.5,
-                                fontFamily: 'monospace',
+                                fontFamily: kMono,
                                 color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8))),
                         ]),
                       ),

@@ -18,7 +18,10 @@ class ApiHubScreen extends StatefulWidget {
   final ApiClient api;
   final OpenFn? open;
   final String? initialApi;
-  const ApiHubScreen({super.key, required this.api, this.open, this.initialApi});
+  /// When true the hub opens on "Check a change" — the mode the top-bar CTA names.
+  final bool checkChange;
+  const ApiHubScreen({super.key, required this.api, this.open, this.initialApi,
+      this.checkChange = false});
 
   @override
   State<ApiHubScreen> createState() => _ApiHubScreenState();
@@ -93,7 +96,8 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
             ),
             Expanded(
               child: TabBarView(children: [
-                _ChangeImpactTab(api: widget.api, apiId: _api!),
+                _ChangeImpactTab(
+                    api: widget.api, apiId: _api!, checkChange: widget.checkChange),
                 _RelationshipsTab(
                     api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
                 _HistoryTab(api: widget.api, apiId: _api!),
@@ -425,7 +429,7 @@ class _EndpointsTabState extends State<_EndpointsTab> {
           child: Row(children: [
             Icon(icon, size: 16, color: color),
             const SizedBox(width: 8),
-            Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: color)),
+            Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
             const Spacer(),
             Text('${rows.length}', style: TextStyle(color: color)),
           ]),
@@ -466,7 +470,7 @@ class _EndpointsTabState extends State<_EndpointsTab> {
             ]),
             if (sub != null)
               Padding(padding: const EdgeInsets.only(top: 3),
-                  child: Text(sub, style: TextStyle(fontSize: 12, fontFamily: 'monospace',
+                  child: Text(sub, style: TextStyle(fontSize: 12, fontFamily: kMono,
                       color: Theme.of(context).colorScheme.onSurfaceVariant))),
             if (fields.isNotEmpty) _FieldChips(fields: fields),
           ]),
@@ -479,14 +483,16 @@ class _EndpointsTabState extends State<_EndpointsTab> {
 class _ChangeImpactTab extends StatefulWidget {
   final ApiClient api;
   final String apiId;
-  const _ChangeImpactTab({required this.api, required this.apiId});
+  final bool checkChange;
+  const _ChangeImpactTab({required this.api, required this.apiId, this.checkChange = false});
 
   @override
   State<_ChangeImpactTab> createState() => _ChangeImpactTabState();
 }
 
 class _ChangeImpactTabState extends State<_ChangeImpactTab> {
-  int _mode = 0;
+  /// 0 = who reads a field · 1 = check a change. The top-bar CTA opens straight into 1.
+  late int _mode = widget.checkChange ? 1 : 0;
   final _spec = TextEditingController();
   Future<PropagationResult>? _result;
   final _oldSpec = TextEditingController();
@@ -620,7 +626,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
             maxLines: null,
             expands: true,
             textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            style: const TextStyle(fontFamily: kMono, fontSize: 12),
             decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true,
                 hintText: 'Paste RAML (#%RAML 1.0 …) or OpenAPI, load a file/zip, or use the recorded version'),
           ),
@@ -676,9 +682,16 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                 label: const Text('Analyze'),
               ),
               const SizedBox(width: 12),
+              // Names only the loaders that exist — the comp's line promised a drop target
+              // this build does not have.
               Flexible(
-                child: Text('or drop a spec file · RAML zip · load from repo',
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: monoData(size: 11)),
+                child: Text(
+                    _latest == null
+                        ? 'or load a spec file · RAML zip'
+                        : 'or load a spec file · RAML zip · the recorded $_baselineLabel',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: monoData(size: 11)),
               ),
             ]),
           ]),
@@ -829,7 +842,7 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                       : (f.unknownCount > 0 ? AppColors.warning : AppColors.additive),
                   shape: BoxShape.circle)),
               title: Row(children: [
-                Text(f.field, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700)),
+                Text(f.field, style: const TextStyle(fontFamily: kMono, fontWeight: FontWeight.w700)),
                 const SizedBox(width: 8),
                 Tooltip(
                   message: f.isRequest ? 'Request field — callers send it' : 'Response field — consumers read it',
@@ -1102,7 +1115,7 @@ class _ConsumersTab extends StatelessWidget {
 
   Widget _section(BuildContext context, String t, int n) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text('$t  ($n)', style: const TextStyle(fontWeight: FontWeight.w800)),
+        child: Text('$t  ($n)', style: const TextStyle(fontWeight: FontWeight.w600)),
       );
 
   Widget _edgeTile(BuildContext context, String name, String risk, List<String> via,
@@ -1126,7 +1139,7 @@ class _ConsumersTab extends StatelessWidget {
               ]),
               if (manifest != null) _readinessChips(context, manifest),
               ...via.map((v) => Padding(padding: const EdgeInsets.only(left: 16, top: 2),
-                  child: Text(v, style: TextStyle(fontSize: 12, fontFamily: 'monospace',
+                  child: Text(v, style: TextStyle(fontSize: 12, fontFamily: kMono,
                       color: Theme.of(context).colorScheme.onSurfaceVariant)))),
             ]),
           ),
@@ -1194,7 +1207,7 @@ class _GovernanceCard extends StatelessWidget {
               const Icon(Icons.policy_outlined, size: 18),
               const SizedBox(width: 8),
               Text('Governance findings involving this API (${findings.length})',
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
             ]),
             const SizedBox(height: 8),
             ...findings.map((f) {
@@ -1254,7 +1267,7 @@ class _HistoryTabState extends State<_HistoryTab> {
   @override
   Widget build(BuildContext context) {
     return ListView(padding: const EdgeInsets.all(24), children: [
-      const Text('Recent changes', style: TextStyle(fontWeight: FontWeight.w800)),
+      const Text('Recent changes', style: TextStyle(fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       FutureBuilder<List<ChangeDto>>(
         future: _changes,
@@ -1282,12 +1295,12 @@ class _HistoryTabState extends State<_HistoryTab> {
                 leading: RiskChip(c.classification),
                 title: Text(c.description ?? c.kind, style: const TextStyle(fontSize: 13)),
                 subtitle: c.endpoint == null ? null : Text(c.endpoint!,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                    style: const TextStyle(fontFamily: kMono, fontSize: 11)),
               )).toList());
         },
       ),
       const Divider(height: 32),
-      const Text('Changelog', style: TextStyle(fontWeight: FontWeight.w800)),
+      const Text('Changelog', style: TextStyle(fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       FutureBuilder<List<ChangelogEntry>>(
         future: _changelog,
@@ -1371,7 +1384,7 @@ class _FieldChips extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
-              child: Text(f, style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+              child: Text(f, style: const TextStyle(fontFamily: kMono, fontSize: 11)),
             ),
         ]),
       );

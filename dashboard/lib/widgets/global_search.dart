@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../pins.dart';
+import '../theme.dart';
 import 'skeleton.dart';
 
 class SearchSelection {
@@ -129,32 +130,62 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // The palette is the fastest route to anything, so it gets the command-bar's own material:
+    // glass over the canvas rather than a stock Material dialog.
     return Dialog(
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 560),
-        child: Focus(
-          autofocus: true,
-          onKeyEvent: _handleKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: TextField(
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                    hintText: 'Search APIs, endpoints, fields…',
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 64),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 40,
+                offset: const Offset(0, 12)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 560),
+            decoration: BoxDecoration(
+              color: AppColors.glassStrong,
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: AppColors.hairlineStrong),
+            ),
+            child: Focus(
+              autofocus: true,
+              onKeyEvent: _handleKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                    child: TextField(
+                      autofocus: true,
+                      style: const TextStyle(fontSize: 14, color: AppColors.text),
+                      decoration: const InputDecoration(
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        isDense: true,
+                        prefixIcon:
+                            Icon(Icons.search, size: 18, color: AppColors.textFaint),
+                        prefixIconConstraints:
+                            BoxConstraints(minWidth: 30, minHeight: 18),
+                        hintText: 'Search APIs, endpoints, fields…',
+                        hintStyle: TextStyle(fontSize: 14, color: AppColors.textFaint),
+                      ),
+                      onChanged: _onQueryChanged,
+                      onSubmitted: (_) {
+                        if (_flat.isNotEmpty) Navigator.of(context).pop(_flat[_focus]);
+                      },
+                    ),
                   ),
-                  onChanged: _onQueryChanged,
-                  onSubmitted: (_) {
-                    if (_flat.isNotEmpty) Navigator.of(context).pop(_flat[_focus]);
-                  },
-                ),
-              ),
-              const Divider(height: 1),
+                  const Divider(height: 1),
               Flexible(child: _resultBody(context)),
               const Divider(height: 1),
               Padding(
@@ -173,7 +204,9 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                   _kbdHint('Esc'),
                 ]),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -277,7 +310,7 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
         child: Text(label,
             style: TextStyle(
                 fontSize: 10,
-                fontFamily: 'monospace',
+                fontFamily: kMono,
                 color: Theme.of(context).colorScheme.onSurfaceVariant)),
       );
 

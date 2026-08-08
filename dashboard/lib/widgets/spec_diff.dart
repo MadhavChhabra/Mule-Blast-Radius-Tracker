@@ -131,7 +131,7 @@ class SpecDiffView extends StatelessWidget {
         ),
         child: Text(label,
             style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 11,
-                fontFamily: 'monospace')),
+                fontFamily: kMono)),
       );
 
   Widget _line(BuildContext context, DiffLine l) {
@@ -149,26 +149,26 @@ class SpecDiffView extends StatelessWidget {
           width: 34,
           child: Text(l.oldNo?.toString() ?? '',
               textAlign: TextAlign.right,
-              style: TextStyle(fontFamily: 'monospace', fontSize: 10.5,
+              style: TextStyle(fontFamily: kMono, fontSize: 10.5,
                   color: scheme.onSurfaceVariant.withOpacity(0.6))),
         ),
         SizedBox(
           width: 34,
           child: Text(l.newNo?.toString() ?? '',
               textAlign: TextAlign.right,
-              style: TextStyle(fontFamily: 'monospace', fontSize: 10.5,
+              style: TextStyle(fontFamily: kMono, fontSize: 10.5,
                   color: scheme.onSurfaceVariant.withOpacity(0.6))),
         ),
         const SizedBox(width: 8),
         SizedBox(
           width: 10,
           child: Text(sign,
-              style: TextStyle(fontFamily: 'monospace', fontSize: 12,
+              style: TextStyle(fontFamily: kMono, fontSize: 12,
                   fontWeight: FontWeight.w700, color: gutter)),
         ),
         Expanded(
           child: Text(l.text,
-              style: TextStyle(fontFamily: 'monospace', fontSize: 12,
+              style: TextStyle(fontFamily: kMono, fontSize: 12,
                   color: l.op == DiffOp.context ? scheme.onSurface : gutter)),
         ),
       ]),

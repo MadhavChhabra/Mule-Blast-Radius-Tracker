@@ -102,6 +102,10 @@ class _HomeShellState extends State<HomeShell> {
       _index = initial.$1;
       _target = initial.$2;
     }
+    // Focusing a node on the estate rewrites the URL, so a blast radius can be shared.
+    FocusState.instance.addListener(() {
+      if (mounted && _index == Tabs.estate) _writeHash();
+    });
     web_util.onHashChange((hash) {
       final parsed = _parseHash(hash);
       if (parsed != null && mounted) {
@@ -121,22 +125,44 @@ class _HomeShellState extends State<HomeShell> {
     final name = switch (parts[0]) { 'home' || 'graph' => 'estate', final v => v };
     final idx = _tabNames.indexOf(name);
     if (idx < 0) return null;
-    final target = parts.length > 1 && idx == Tabs.apiHub
+    // #/estate/<api> restores focus mode, so a blast radius can be pasted into a ticket.
+    final target = parts.length > 1 && (idx == Tabs.apiHub || idx == Tabs.estate)
         ? NavTarget(api: Uri.decodeComponent(parts[1]))
         : null;
     return (idx, target);
   }
 
   void _writeHash() {
-    final api = _index == Tabs.apiHub ? _target?.api : null;
+    final api = _index == Tabs.apiHub
+        ? _target?.api
+        : (_index == Tabs.estate ? FocusState.instance.api : null);
     web_util.writeLocationHash(
         '#/${_tabNames[_index]}${api == null ? '' : '/${Uri.encodeComponent(api)}'}');
   }
+
+  /// Set when the user arrives via the top bar's "Check a change", so the hub opens on the mode
+  /// that button names rather than on field lookup.
+  bool _checkChange = false;
 
   void _go(int index) {
     setState(() {
       _index = index;
       _target = null;
+      _checkChange = false;
+    });
+    _writeHash();
+  }
+
+  /// The chrome's primary action: jump straight to checking a change on the API you were last
+  /// looking at, or the one you pinned, instead of dropping the user on a picker.
+  void _checkAChange() {
+    setState(() {
+      _index = Tabs.apiHub;
+      _checkChange = true;
+      final pinned = Pins.instance.pinned;
+      if (_target?.api == null && pinned.isNotEmpty) {
+        _target = NavTarget(api: pinned.first);
+      }
     });
     _writeHash();
   }
@@ -205,16 +231,21 @@ class _HomeShellState extends State<HomeShell> {
     switch (_index) {
       case Tabs.apiHub:
         return ApiHubScreen(
-            key: ValueKey('hub:${_target?.api}'),
+            key: ValueKey('hub:${_target?.api}:$_checkChange'),
             api: api,
             open: _open,
-            initialApi: _target?.api);
+            initialApi: _target?.api,
+            checkChange: _checkChange);
       case Tabs.changelog:
         return ChangelogScreen(api: api);
       case Tabs.sources:
         return SourcesScreen(api: api, open: _open);
       default:
-        return GraphScreen(api: api, open: _open);
+        return GraphScreen(
+            key: ValueKey('estate:${_target?.api}'),
+            api: api,
+            open: _open,
+            initialFocus: _target?.api);
     }
   }
 
@@ -255,6 +286,7 @@ class _HomeShellState extends State<HomeShell> {
                       onSelect: _go,
                       onSearch: _search,
                       onKey: _serverKeyDialog,
+                      onCheckChange: _checkAChange,
                       floating: true,
                       api: api,
                     ),
@@ -271,6 +303,7 @@ class _HomeShellState extends State<HomeShell> {
               onSelect: _go,
               onSearch: _search,
               onKey: _serverKeyDialog,
+              onCheckChange: _checkAChange,
               floating: false,
               api: api,
             ),
@@ -288,6 +321,7 @@ class _TopBar extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final VoidCallback onSearch;
   final VoidCallback onKey;
+  final VoidCallback onCheckChange;
   final bool floating;
   final ApiClient api;
 
@@ -297,6 +331,7 @@ class _TopBar extends StatelessWidget {
     required this.onSelect,
     required this.onSearch,
     required this.onKey,
+    required this.onCheckChange,
     required this.floating,
     required this.api,
   });
@@ -331,7 +366,7 @@ class _TopBar extends StatelessWidget {
           onTap: () => showShortcutsHelp(context)),
       const SizedBox(width: 10),
       FilledButton.icon(
-        onPressed: () => onSelect(Tabs.apiHub),
+        onPressed: onCheckChange,
         icon: const Icon(Icons.bolt, size: 16),
         label: const Text('Check a change'),
       ),
