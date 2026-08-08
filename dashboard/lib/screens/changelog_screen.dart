@@ -116,12 +116,14 @@ class _ChangelogCard extends StatelessWidget {
   /// The generated Markdown is grouped under headings; render those as the design's kickers rather
   /// than as generic markdown. The document title and the version line are dropped — the card
   /// header already carries both, and repeating them was pure noise.
-  static Map<String, List<String>> _sections(String markdown, String? api, String? version) {
-    final out = <String, List<String>>{};
+  static Map<String, List<_Line>> _sections(String markdown, String? api, String? version) {
+    final out = <String, List<_Line>>{};
     String? current;
     for (final raw in markdown.split('\n')) {
       final line = raw.trim();
       if (line.isEmpty) continue;
+      // "  - _Ship it safely:_ …" is a child of the change above it, not a peer.
+      final indented = RegExp(r'^\s{2,}[-*]').hasMatch(raw);
       if (line.startsWith('#')) {
         final heading = line.replaceAll('#', '').trim();
         // Skip "# Changelog" and "# <api> 1.2.0" style titles.
@@ -136,9 +138,8 @@ class _ChangelogCard extends StatelessWidget {
         out.putIfAbsent(current, () => []);
         continue;
       }
-      final body = (line.startsWith('-') || line.startsWith('*'))
-          ? line.substring(1).trim()
-          : line;
+      final isBullet = line.startsWith('-') || line.startsWith('*');
+      final body = isBullet ? line.substring(1).trim() : line;
       // A bare version/summary line before the first heading is header material, not content.
       if (current == null) {
         final plain = _strip(body).toLowerCase();
@@ -147,7 +148,9 @@ class _ChangelogCard extends StatelessWidget {
         current = 'SUMMARY';
         out.putIfAbsent(current, () => []);
       }
-      out.putIfAbsent(current, () => []).add(body);
+      out
+          .putIfAbsent(current, () => [])
+          .add(_Line(body, bullet: isBullet && !indented, indented: indented));
     }
     return out;
   }
@@ -239,9 +242,10 @@ class _ChangelogCard extends StatelessWidget {
 
   /// Renders the generated Markdown's inline marks — `code`, **strong**, _emphasis_ — instead of
   /// printing the asterisks and underscores verbatim.
-  Widget _bullet(String line) {
+  Widget _bullet(_Line entry) {
+    final line = entry.text;
     final spans = <TextSpan>[
-      const TextSpan(text: '— ', style: _body),
+      if (entry.bullet) const TextSpan(text: '— ', style: _body),
     ];
     final pattern = RegExp(r'`([^`]+)`|\*\*([^*]+)\*\*|_([^_]+)_');
     int at = 0;
@@ -263,6 +267,27 @@ class _ChangelogCard extends StatelessWidget {
     if (at < line.length) {
       spans.add(TextSpan(text: line.substring(at), style: _body));
     }
-    return RichText(text: TextSpan(children: spans));
+    final text = RichText(text: TextSpan(children: spans));
+    if (!entry.indented) return text;
+    // A child line sits under its parent behind a hairline, so remediation reads as advice about
+    // the change above rather than as another change.
+    return Padding(
+      padding: const EdgeInsets.only(left: 14),
+      child: Container(
+        padding: const EdgeInsets.only(left: 12),
+        decoration: const BoxDecoration(
+          border: Border(left: BorderSide(color: AppColors.hairlineStrong)),
+        ),
+        child: text,
+      ),
+    );
   }
+}
+
+/// One rendered line of a changelog section, with whether it is a top-level bullet or a child.
+class _Line {
+  final String text;
+  final bool bullet;
+  final bool indented;
+  const _Line(this.text, {required this.bullet, required this.indented});
 }

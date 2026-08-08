@@ -227,8 +227,8 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Widget _page() {
-    switch (_index) {
+  Widget _page(int index) {
+    switch (index) {
       case Tabs.apiHub:
         return ApiHubScreen(
             key: ValueKey('hub:${_target?.api}:$_checkChange'),
@@ -249,6 +249,24 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  /// Surfaces are kept alive rather than rebuilt on every visit. Destroying them was resetting the
+  /// map's pan, zoom, focus and filters, and re-firing the reads behind each screen — the map is
+  /// the home surface now, so its viewport has to survive navigation.
+  Widget _pages() {
+    return IndexedStack(
+      index: _index,
+      sizing: StackFit.expand,
+      children: [
+        for (int i = 0; i < _labels.length; i++)
+          // Only the estate runs under the floating bar; framed surfaces start below it.
+          Padding(
+            padding: EdgeInsets.only(top: i == Tabs.estate ? 0 : 52),
+            child: _page(i),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final onCanvas = _index == Tabs.estate;
@@ -258,8 +276,7 @@ class _HomeShellState extends State<HomeShell> {
         // The estate canvas runs full-bleed under its floating bar; framed surfaces sit below a
         // solid one, so the bar is part of the page rather than hovering over content.
         Positioned.fill(
-          top: onCanvas ? 0 : 52,
-          child: _page(),
+          child: _pages(),
         ),
         if (onCanvas)
           Positioned(

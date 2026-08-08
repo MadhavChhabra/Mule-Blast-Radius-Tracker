@@ -46,7 +46,11 @@ class ApiClient {
     return _graphCache!;
   }
 
-  void invalidateGraph() => _graphCache = null;
+  /// Findings are derived from the graph, so they expire together.
+  void invalidateGraph() {
+    _graphCache = null;
+    _insightsCache = null;
+  }
 
   Future<List<ApiInfo>> apis() async {
     final r = await _get('/api/apis');
@@ -91,9 +95,16 @@ class ApiClient {
     return SearchResults.fromJson(r);
   }
 
-  Future<List<InsightFinding>> insights() async {
-    final r = await _get('/api/insights');
-    return (r as List).map((e) => InsightFinding.fromJson(e)).toList();
+  Future<List<InsightFinding>>? _insightsCache;
+
+  /// Cached alongside the graph: findings are derived from the same estate, so re-deriving them
+  /// every time the user walks back to the map is pure waste.
+  Future<List<InsightFinding>> insights({bool refresh = false}) {
+    if (refresh || _insightsCache == null) {
+      _insightsCache = _get('/api/insights')
+          .then((r) => (r as List).map((e) => InsightFinding.fromJson(e)).toList());
+    }
+    return _insightsCache!;
   }
 
   Future<List<AuditEvent>> audit({int limit = 50}) async {

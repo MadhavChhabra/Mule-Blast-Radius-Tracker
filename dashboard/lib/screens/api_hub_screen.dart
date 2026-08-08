@@ -37,10 +37,12 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
     _graph = widget.api.graph();
     _api = widget.initialApi;
     if (_api == null) {
+      // Unhandled: with no server reachable this threw into the zone on every load. The screen
+      // already renders a proper error state from the same future, so swallow it here.
       _graph!.then((g) {
         final apis = g.nodes.where((n) => n.api).map((n) => n.id).toList()..sort();
         if (mounted && _api == null && apis.isNotEmpty) setState(() => _api = apis.first);
-      });
+      }).catchError((_) {});
     }
   }
 
