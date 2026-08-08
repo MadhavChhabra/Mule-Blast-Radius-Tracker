@@ -36,14 +36,14 @@ public class GraphExportController {
             case "edges" -> edgesCsv(g);
             default -> nodesCsv(g);
         };
-        String filename = "wakegraph-" + (kind.equalsIgnoreCase("edges") ? "edges" : "nodes") + ".csv";
+        String filename = "blipradius-" + (kind.equalsIgnoreCase("edges") ? "edges" : "nodes") + ".csv";
         return withDownload(body, "text/csv; charset=utf-8", filename, download);
     }
 
     @GetMapping(value = "/export.svg", produces = "image/svg+xml")
     public ResponseEntity<String> svg(@RequestParam(defaultValue = "false") boolean download) {
         String body = renderSvg(graphs.build());
-        return withDownload(body, "image/svg+xml; charset=utf-8", "wakegraph-estate.svg", download);
+        return withDownload(body, "image/svg+xml; charset=utf-8", "blipradius-estate.svg", download);
     }
 
     private static ResponseEntity<String> withDownload(String body, String contentType, String filename,

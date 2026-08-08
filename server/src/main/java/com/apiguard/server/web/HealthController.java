@@ -14,7 +14,7 @@ import java.util.Map;
 @RestController
 public class HealthController {
 
-    private static final String NAME = "Wakegraph";
+    private static final String NAME = "Blipradius";
 
     private final String fallbackVersion;
     private final boolean authRequired;

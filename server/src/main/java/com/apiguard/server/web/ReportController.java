@@ -24,7 +24,7 @@ public class ReportController {
                 .contentType(MediaType.parseMediaType("text/markdown;charset=UTF-8"));
         if (download) {
             builder.header(HttpHeaders.CONTENT_DISPOSITION,
-                    "attachment; filename=\"wakegraph-estate-report.md\"");
+                    "attachment; filename=\"blipradius-estate-report.md\"");
         }
         return builder.body(report.markdown());
     }

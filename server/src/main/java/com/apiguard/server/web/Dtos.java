@@ -102,7 +102,9 @@ public final class Dtos {
 
     /// `confirmedCount` is the subset of `consumerCount` where discovered lineage proves the
     /// consumer reads this field; the rest are consumers we have no field-level data for.
-    public record PropagationField(String endpoint, String field, int consumerCount, int confirmedCount,
+    /// `side` is "response" (consumers read this field) or "request" (callers must send it).
+    public record PropagationField(String endpoint, String field, String side,
+                                   int consumerCount, int confirmedCount,
                                    List<ConsumerDto> downstream, List<UpstreamDto> upstream) {
     }
 
@@ -138,5 +140,10 @@ public final class Dtos {
     }
 
     public record GraphDto(List<GraphNode> nodes, List<GraphEdge> edges, GraphCoverage coverage) {
+    }
+
+    /// Who is downwind of an API: `direct` consumers call it, `transitive` are further out and
+    /// affected only if their own providers pass the change along — worth telling, not blaming.
+    public record ReachDto(String api, List<String> direct, List<String> transitive) {
     }
 }

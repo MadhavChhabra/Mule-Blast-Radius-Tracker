@@ -18,6 +18,26 @@ class SourcesScreen extends StatefulWidget {
 
 class _SourcesScreenState extends State<SourcesScreen> {
   Future<SourcesStatus>? _status;
+  ConnectionTest? _testResult;
+  bool _testing = false;
+
+  Future<void> _testAnypoint() async {
+    setState(() {
+      _testing = true;
+      _testResult = null;
+    });
+    try {
+      final r = await widget.api.testAnypoint();
+      if (mounted) setState(() => _testResult = r);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _testResult = ConnectionTest(
+            false, null, null, 0, e.toString().replaceFirst('Exception: ', '')));
+      }
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
   final _repoCtrl = TextEditingController();
   bool _busy = false;
   SyncAllResult? _result;
@@ -171,7 +191,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const ScreenHeader('Sources',
-            'Connect your Anypoint org and your repos. Wakegraph reads real relationships from both.'),
+            'Connect your Anypoint org and your repos. Blipradius reads real relationships from both.'),
         Expanded(
           child: AsyncView<SourcesStatus>(
             future: _status!,
@@ -298,6 +318,16 @@ class _SourcesScreenState extends State<SourcesScreen> {
               ]),
             ),
             const SizedBox(width: 12),
+            if (s.anypointConfigured)
+              OutlinedButton.icon(
+                onPressed: _testing ? null : _testAnypoint,
+                icon: _testing
+                    ? const SizedBox(
+                        width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.network_check, size: 16),
+                label: const Text('Test'),
+              ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: _connectAnypoint,
               icon: Icon(s.anypointConfigured ? Icons.settings_outlined : Icons.link, size: 16),
@@ -310,6 +340,27 @@ class _SourcesScreenState extends State<SourcesScreen> {
                 icon: const Icon(Icons.link_off, size: 18),
               ),
           ]),
+          if (_testResult != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (_testResult!.ok ? AppColors.additive : AppColors.breaking).withOpacity(0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                Icon(_testResult!.ok ? Icons.check_circle_outline : Icons.error_outline,
+                    size: 16,
+                    color: _testResult!.ok ? AppColors.additive : AppColors.breaking),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_testResult!.message ?? (_testResult!.ok ? 'Connected.' : 'Failed.'),
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
+              ]),
+            ),
+          ],
         ]),
       ),
     );
@@ -354,20 +405,62 @@ class _SourcesScreenState extends State<SourcesScreen> {
           if (s.repos.isEmpty)
             Text('No repos yet.', style: Theme.of(context).textTheme.bodySmall)
           else
-            ...s.repos.map((url) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.source_outlined, size: 18),
-                  title: Text(_redact(url), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-                  trailing: IconButton(
-                    tooltip: 'Remove repo',
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () => _removeRepo(url),
-                  ),
-                )),
+            ...s.repos.map((url) {
+              final d = s.detailFor(url);
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(_repoIcon(d), size: 18, color: _repoColor(context, d)),
+                title:
+                    Text(_redact(url), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                subtitle: Text(_repoStatusLine(d),
+                    style: TextStyle(fontSize: 11, color: _repoColor(context, d))),
+                trailing: IconButton(
+                  tooltip: 'Remove repo',
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  onPressed: () => _removeRepo(url),
+                ),
+              );
+            }),
         ]),
       ),
     );
+  }
+
+  // A repo that has never synced, or that contributed nothing, is the most common reason the
+  // estate looks thinner than expected — so each row says so on its own line.
+  static IconData _repoIcon(RepoSource? d) {
+    if (d == null || d.neverSynced) return Icons.schedule_outlined;
+    if (d.lastError != null) return Icons.error_outline;
+    if ((d.lastApps ?? 0) == 0) return Icons.help_outline;
+    return Icons.check_circle_outline;
+  }
+
+  static Color? _repoColor(BuildContext context, RepoSource? d) {
+    if (d == null || d.neverSynced) return Theme.of(context).colorScheme.onSurfaceVariant;
+    if (d.lastError != null) return AppColors.breaking;
+    if ((d.lastApps ?? 0) == 0) return AppColors.warning;
+    return AppColors.additive;
+  }
+
+  static String _repoStatusLine(RepoSource? d) {
+    if (d == null || d.neverSynced) return 'not scanned yet — run Sync everything';
+    if (d.lastError != null) return 'last sync failed — ${d.lastError}';
+    final apps = d.lastApps ?? 0;
+    final when = _relative(d.lastSyncedAt!);
+    return apps == 0
+        ? 'no Mule apps found $when (needs pom.xml + src/main/mule)'
+        : '$apps Mule app(s) $when';
+  }
+
+  static String _relative(String iso) {
+    final t = DateTime.tryParse(iso);
+    if (t == null) return '';
+    final d = DateTime.now().toUtc().difference(t.toUtc());
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
   }
 
   Widget _resultsCard(BuildContext context, SyncAllResult r) {

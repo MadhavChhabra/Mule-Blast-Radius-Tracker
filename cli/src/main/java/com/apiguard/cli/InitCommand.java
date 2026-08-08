@@ -12,7 +12,7 @@ import java.util.Locale;
 import java.util.concurrent.Callable;
 
 @Command(name = "init", mixinStandardHelpOptions = true,
-        description = "Enroll this repo in Wakegraph: writes .wakegraph.yml and a CI workflow that runs `wakegraph impact` on every PR touching the spec.")
+        description = "Enroll this repo in Blipradius: writes .blipradius.yml and a CI workflow that runs `blipradius impact` on every PR touching the spec.")
 public final class InitCommand implements Callable<Integer> {
 
     @Option(names = {"-a", "--api"}, required = true,
@@ -24,8 +24,8 @@ public final class InitCommand implements Callable<Integer> {
     String specPath;
 
     @Option(names = "--server",
-            description = "Wakegraph server base URL that CI will call.",
-            defaultValue = "https://wakegraph.internal")
+            description = "Blipradius server base URL that CI will call.",
+            defaultValue = "https://blipradius.internal")
     String server;
 
     @Option(names = "--base", description = "Base branch for PR diffs. Default: main.",
@@ -37,7 +37,7 @@ public final class InitCommand implements Callable<Integer> {
     String ci;
 
     @Option(names = "--api-key-secret",
-            description = "Name of the CI secret that holds the Wakegraph API key. Default: WAKEGRAPH_API_KEY.",
+            description = "Name of the CI secret that holds the Blipradius API key. Default: WAKEGRAPH_API_KEY.",
             defaultValue = "WAKEGRAPH_API_KEY")
     String apiKeySecret;
 
@@ -63,7 +63,7 @@ public final class InitCommand implements Callable<Integer> {
         Path spec = root.resolve(specPath);
         if (!Files.isRegularFile(spec)) {
             System.err.println(ansi.yellow("Warning: spec not found at " + spec
-                    + " — continuing anyway (path is written to .wakegraph.yml as-is)."));
+                    + " — continuing anyway (path is written to .blipradius.yml as-is)."));
         }
 
         String target = ci.toLowerCase(Locale.ROOT);
@@ -72,13 +72,13 @@ public final class InitCommand implements Callable<Integer> {
             return 2;
         }
 
-        Path config = root.resolve(".wakegraph.yml");
+        Path config = root.resolve(".blipradius.yml");
         boolean configWritten = writeIfAbsent(config, projectConfig(), ansi);
 
         Path workflow;
         String workflowBody;
         if (target.equals("github")) {
-            workflow = root.resolve(".github").resolve("workflows").resolve("wakegraph.yml");
+            workflow = root.resolve(".github").resolve("workflows").resolve("blipradius.yml");
             workflowBody = githubWorkflow();
         } else {
             workflow = root.resolve("bitbucket-pipelines.yml");
@@ -87,16 +87,16 @@ public final class InitCommand implements Callable<Integer> {
         boolean workflowWritten = writeIfAbsent(workflow, workflowBody, ansi);
 
         System.out.println();
-        System.out.println(ansi.bold("Wakegraph enrolled."));
+        System.out.println(ansi.bold("Blipradius enrolled."));
         System.out.println("  config    " + rel(root, config) + (configWritten ? "" : ansi.dim("  (kept)")));
         System.out.println("  workflow  " + rel(root, workflow) + (workflowWritten ? "" : ansi.dim("  (kept)")));
         System.out.println();
         System.out.println("Next steps:");
         System.out.println("  1. Add the CI secret " + ansi.bold(apiKeySecret)
-                + " if your Wakegraph server has API-key auth on.");
+                + " if your Blipradius server has API-key auth on.");
         System.out.println("  2. Commit the two files above.");
         System.out.println("  3. Open a PR that changes " + ansi.bold(specPath)
-                + " and Wakegraph will comment with the blast radius.");
+                + " and Blipradius will comment with the blast radius.");
         return 0;
     }
 
@@ -121,7 +121,7 @@ public final class InitCommand implements Callable<Integer> {
 
     private String projectConfig() {
         return "" +
-                "# Wakegraph project config — committed to the repo, read by CI.\n" +
+                "# Blipradius project config — committed to the repo, read by CI.\n" +
                 "api: " + apiName + "\n" +
                 "spec: " + specPath + "\n" +
                 "base: " + baseBranch + "\n" +
@@ -132,12 +132,12 @@ public final class InitCommand implements Callable<Integer> {
 
     private String githubWorkflow() {
         return "" +
-                "name: Wakegraph\n" +
+                "name: Blipradius\n" +
                 "on:\n" +
                 "  pull_request:\n" +
                 "    paths:\n" +
                 "      - '" + specPath + "'\n" +
-                "      - '.wakegraph.yml'\n" +
+                "      - '.blipradius.yml'\n" +
                 "jobs:\n" +
                 "  impact:\n" +
                 "    runs-on: ubuntu-latest\n" +
@@ -161,7 +161,7 @@ public final class InitCommand implements Callable<Integer> {
 
     private String bitbucketPipeline() {
         return "" +
-                "# Wakegraph impact — runs on every PR touching " + specPath + "\n" +
+                "# Blipradius impact — runs on every PR touching " + specPath + "\n" +
                 "# Repository variables required (Repository settings → Repository variables):\n" +
                 "#   WAKEGRAPH_SERVER   = " + server + "\n" +
                 "#   WAKEGRAPH_API_KEY  = <secret, matches server's apiguard.security.api-key>\n" +
@@ -170,20 +170,20 @@ public final class InitCommand implements Callable<Integer> {
                 "  pull-requests:\n" +
                 "    '**':\n" +
                 "      - step:\n" +
-                "          name: Wakegraph impact\n" +
+                "          name: Blipradius impact\n" +
                 "          clone:\n" +
                 "            depth: full\n" +
                 "          script:\n" +
-                "            - curl -sSL -o wakegraph.jar https://github.com/MadhavChhabra/Mule-Blast-Radius-Tracker/releases/latest/download/apiguard.jar\n" +
+                "            - curl -sSL -o blipradius.jar https://github.com/MadhavChhabra/Mule-Blast-Radius-Tracker/releases/latest/download/apiguard.jar\n" +
                 "            - BASE=\"origin/${BITBUCKET_PR_DESTINATION_BRANCH:-" + baseBranch + "}\"\n" +
                 "            - git fetch --no-tags --depth=100 origin \"${BITBUCKET_PR_DESTINATION_BRANCH:-" + baseBranch + "}\"\n" +
                 "            - export APIGUARD_API_KEY=\"$WAKEGRAPH_API_KEY\"\n" +
-                "            - java -jar wakegraph.jar impact " + specPath + " \\\n" +
+                "            - java -jar blipradius.jar impact " + specPath + " \\\n" +
                 "                --api " + apiName + " --base \"$BASE\" \\\n" +
                 "                --server \"$WAKEGRAPH_SERVER\" \\\n" +
-                "                --markdown wakegraph-report.md \\\n" +
+                "                --markdown blipradius-report.md \\\n" +
                 "                --fail-on breaking-impact\n" +
                 "          artifacts:\n" +
-                "            - wakegraph-report.md\n";
+                "            - blipradius-report.md\n";
     }
 }

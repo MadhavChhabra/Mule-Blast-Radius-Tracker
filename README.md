@@ -1,7 +1,7 @@
-# 🛡️ Wakegraph
+# 🛡️ Blipradius
 
 **See the blast radius of an API change across your MuleSoft estate.** Change a RAML/OpenAPI spec
-and Wakegraph tells you the **blast radius before you merge** — mapped from your *real* dependency
+and Blipradius tells you the **blast radius before you merge** — mapped from your *real* dependency
 network (Exchange + API Manager + Bitbucket/GitHub repo flows) — and documents it automatically.
 
 Three features on one pipeline (the semantic diff):
@@ -72,13 +72,13 @@ SAFE       POST /orders  request.couponCode  (New optional request field 'coupon
 
 Drop `apiguard check` into a **pre-commit hook** or CI to gate breaking changes.
 
-When a Wakegraph server is running with your synced estate, use `impact` instead — the blast radius
+When a Blipradius server is running with your synced estate, use `impact` instead — the blast radius
 then comes from the *real* dependency network (Anypoint contracts + every scanned repo), not just
 the manifests in this checkout, and you get a PR-ready Markdown report:
 
 ```bash
 java -jar apiguard.jar impact old.yaml new.yaml --api orders-exp-api \
-    --server https://wakegraph.internal --markdown report.md
+    --server https://blipradius.internal --markdown report.md
 # exit 1 only when a breaking change hits a real consumer (--fail-on breaking|never to change)
 ```
 
@@ -114,7 +114,7 @@ UI and the API on the same origin — no CORS, no second URL.
 ```bash
 cp deploy/.env.example deploy/.env        # set APIGUARD_API_KEY_SERVER, APIGUARD_ENCRYPTION_KEY
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
-# Wakegraph → http://localhost:8080
+# Blipradius → http://localhost:8080
 ```
 
 ### 4. As a GitHub Action
@@ -131,7 +131,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
     api: orders-api
     manifests: .
     fail-on-breaking: 'true'
-    # server: https://wakegraph.internal   # optional — blast radius from the real synced estate
+    # server: https://blipradius.internal   # optional — blast radius from the real synced estate
 ```
 
 It comments the report on the PR and fails the check when breaking changes are found. With
@@ -261,4 +261,4 @@ cd dashboard && flutter test    # widget test
 
 ---
 
-*Built from a single build brief. `Wakegraph` (formerly APIGuard, then briefly FlowSight) is the product name; internal identifiers remain `apiguard`.*
+*Built from a single build brief. `Blipradius` (formerly APIGuard, then briefly FlowSight) is the product name; internal identifiers remain `apiguard`.*

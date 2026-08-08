@@ -48,15 +48,23 @@ void main() {
     expect(find.text('No changelog entries yet'), findsOneWidget);
   });
 
-  testWidgets('API hub renders tabs and endpoints for a selected API', (tester) async {
+  testWidgets('API hub leads with change impact and keeps relationships one tab away',
+      (tester) async {
     await pumpScreen(tester,
         ApiHubScreen(api: fakeApi(), initialApi: 'orders-exp-api', open: noopOpen));
 
     expect(tester.takeException(), isNull);
     expect(find.text('orders-exp-api'), findsWidgets);
-    expect(find.text('Endpoints'), findsWidgets);
     expect(find.text('Change impact'), findsWidgets);
-    expect(find.text('Consumers & blast radius'), findsWidgets);
+    expect(find.text('Relationships'), findsWidgets);
+    expect(find.text('History'), findsWidgets);
+
+    // Per-endpoint traffic and the consumer list now share one surface.
+    await tester.tap(find.text('Relationships'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Called by'), findsWidgets);
+    expect(find.textContaining('Consumed by'), findsWidgets);
   });
 
   testWidgets('Estate map empty state offers a Sources shortcut', (tester) async {
@@ -75,7 +83,7 @@ void main() {
     expect(find.text('Choose an API'), findsOneWidget);
   });
 
-  testWidgets('API hub Endpoints tab surfaces an error with retry, not a false empty state',
+  testWidgets('API hub relationships surface an error with retry, not a false empty state',
       (tester) async {
     await pumpScreen(
         tester,
@@ -83,6 +91,9 @@ void main() {
             api: fakeApi(failPaths: {'/api/endpoint'}),
             initialApi: 'orders-exp-api',
             open: noopOpen));
+
+    await tester.tap(find.text('Relationships'));
+    await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
     expect(find.text('Retry'), findsWidgets);

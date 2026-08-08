@@ -15,7 +15,9 @@ import org.springframework.web.client.RestClientException;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
-@RestControllerAdvice
+// Scoped to our own controllers: a global advice also wraps springdoc's doc endpoints, turning a
+// generation hiccup into an empty 500 with no way to see what actually went wrong.
+@RestControllerAdvice(basePackages = "com.apiguard.server.web")
 public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);

@@ -5,6 +5,9 @@ import com.apiguard.server.service.AuditService;
 import com.apiguard.server.service.CredentialStore;
 import com.apiguard.server.service.SourcesService;
 import com.apiguard.server.service.SyncJobService;
+import com.apiguard.server.service.WorkspaceScoutService;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,14 +23,17 @@ public class SourcesController {
     private final CredentialStore credentialStore;
     private final SyncJobService syncJob;
     private final AuditService audit;
+    private final WorkspaceScoutService workspaceScout;
 
     public SourcesController(SourcesService sources, AnypointCredentials creds, CredentialStore credentialStore,
-                             SyncJobService syncJob, AuditService audit) {
+                             SyncJobService syncJob, AuditService audit,
+                             WorkspaceScoutService workspaceScout) {
         this.sources = sources;
         this.creds = creds;
         this.credentialStore = credentialStore;
         this.syncJob = syncJob;
         this.audit = audit;
+        this.workspaceScout = workspaceScout;
     }
 
     public record RepoRequest(@NotBlank String url) {
@@ -42,6 +48,12 @@ public class SourcesController {
         return sources.status();
     }
 
+    /// Mule projects already on this machine — the zero-typing path into a first sync.
+    @GetMapping("/api/sources/local-candidates")
+    public List<WorkspaceScoutService.Candidate> localCandidates() {
+        return workspaceScout.discover();
+    }
+
     @PostMapping("/api/sources/anypoint")
     public SourcesService.Status configureAnypoint(@Valid @RequestBody AnypointConfigRequest req) {
         creds.update(req.clientId(), req.clientSecret(), req.orgId(), req.environment());
@@ -49,6 +61,30 @@ public class SourcesController {
         audit.record("anypoint.configure", req.orgId(),
                 "env=" + req.environment() + " clientId=" + req.clientId());
         return sources.status();
+    }
+
+    public record ConnectionTest(boolean ok, String orgId, String environment, int environments,
+                                 String message) {
+    }
+
+    /// Answers "did my credentials work" in a second, instead of making the user start a full sync
+    /// and read a failure out of the results list.
+    @PostMapping("/api/sources/anypoint/test")
+    public ConnectionTest testAnypoint() {
+        if (!creds.isConfigured()) {
+            return new ConnectionTest(false, null, null, 0,
+                    "No Anypoint connection is configured yet.");
+        }
+        try {
+            String orgId = sources.anypointOrgId();
+            var envs = sources.anypointEnvironments(orgId);
+            String envName = creds.environment();
+            return new ConnectionTest(true, orgId, envName, envs.size(),
+                    "Connected. " + envs.size() + " environment(s) visible.");
+        } catch (RuntimeException e) {
+            return new ConnectionTest(false, creds.orgId(), creds.environment(), 0,
+                    e.getMessage() == null ? "Anypoint rejected the credentials." : e.getMessage());
+        }
     }
 
     @PostMapping("/api/sources/anypoint/disconnect")

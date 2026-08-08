@@ -105,13 +105,13 @@ class WebApiTest {
         mvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.name").value("Wakegraph"))
+                .andExpect(jsonPath("$.name").value("Blipradius"))
                 .andExpect(jsonPath("$.version").value("0.1.0"))
                 .andExpect(jsonPath("$.uptimeSeconds").exists())
                 .andExpect(jsonPath("$.authRequired").value(false));
         mvc.perform(get("/api/version"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("Wakegraph"))
+                .andExpect(jsonPath("$.name").value("Blipradius"))
                 .andExpect(jsonPath("$.java").exists());
     }
 }

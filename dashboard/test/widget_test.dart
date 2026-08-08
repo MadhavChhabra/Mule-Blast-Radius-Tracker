@@ -14,7 +14,7 @@ void main() {
 
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.text('Wakegraph'), findsWidgets);
+    expect(find.text('Blipradius'), findsWidgets);
     expect(find.text('Sources'), findsWidgets);
     expect(find.text('Estate map'), findsWidgets);
     expect(find.text('API hub'), findsWidgets);

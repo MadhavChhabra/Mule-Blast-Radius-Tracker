@@ -77,6 +77,9 @@ class SkeletonList extends StatelessWidget {
     return Shimmer(
       child: ListView.separated(
         padding: const EdgeInsets.all(24),
+        // A fixed row count, so it can size to its content and stay safe inside a scrolling parent.
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         itemCount: rows,
         separatorBuilder: (_, __) => const SizedBox(height: 16),
         itemBuilder: (context, i) => Container(

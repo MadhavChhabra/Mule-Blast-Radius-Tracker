@@ -10,7 +10,7 @@ for cand in "/app/apiguard.jar" "$REPO_DIR/cli/build/libs/apiguard.jar"; do
   if [ -f "$cand" ]; then JAR="$cand"; break; fi
 done
 if [ -z "$JAR" ]; then
-  echo "Building Wakegraph CLI..."
+  echo "Building Blipradius CLI..."
   (cd "$REPO_DIR" && ./gradlew :cli:shadowJar --no-daemon -q)
   JAR="$REPO_DIR/cli/build/libs/apiguard.jar"
 fi
@@ -51,7 +51,7 @@ if [ "${INPUT_COMMENT:-true}" = "true" ] && [ -n "${INPUT_GITHUB_TOKEN:-}" ] \
     if [ -n "$MD_REPORT" ] && [ -s "$MD_REPORT" ]; then
       BODY_MD="$(cat "$MD_REPORT")"
     else
-      BODY_MD="$(printf '## 🛡️ Wakegraph report\n\n```\n%s\n```\n\n%s\n' "$REPORT" "$CHANGELOG")"
+      BODY_MD="$(printf '## 🛡️ Blipradius report\n\n```\n%s\n```\n\n%s\n' "$REPORT" "$CHANGELOG")"
     fi
     BODY_JSON="$(jq -Rs '{body: .}' <<< "$BODY_MD")"
     curl -sS -X POST \
@@ -63,7 +63,7 @@ if [ "${INPUT_COMMENT:-true}" = "true" ] && [ -n "${INPUT_GITHUB_TOKEN:-}" ] \
 fi
 
 if [ "$FAIL" = "true" ] && [ "$CODE" -ne 0 ]; then
-  echo "Wakegraph: breaking changes detected -> failing the check."
+  echo "Blipradius: breaking changes detected -> failing the check."
   exit 1
 fi
-echo "Wakegraph: no blocking changes."
+echo "Blipradius: no blocking changes."

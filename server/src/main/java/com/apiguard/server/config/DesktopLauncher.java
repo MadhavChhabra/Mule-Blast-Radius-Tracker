@@ -24,12 +24,12 @@ public class DesktopLauncher {
         try {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(URI.create(url));
-                log.info("Opened Wakegraph dashboard at {}", url);
+                log.info("Opened Blipradius dashboard at {}", url);
                 return;
             }
         } catch (Exception e) {
             log.debug("Could not auto-open browser: {}", e.getMessage());
         }
-        log.info("Wakegraph dashboard available at {}", url);
+        log.info("Blipradius dashboard available at {}", url);
     }
 }

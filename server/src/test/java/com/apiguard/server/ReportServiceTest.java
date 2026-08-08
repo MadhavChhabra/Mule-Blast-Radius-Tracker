@@ -39,7 +39,7 @@ class ReportServiceTest {
 
         String md = report.markdown();
 
-        assertTrue(md.startsWith("# Wakegraph estate report"), md.substring(0, Math.min(120, md.length())));
+        assertTrue(md.startsWith("# Blipradius estate report"), md.substring(0, Math.min(120, md.length())));
         assertTrue(md.contains("## Estate at a glance"));
         assertTrue(md.contains("## Governance findings"));
         assertTrue(md.contains("Upward call: rpt-orders-sys-api → rpt-orders-exp-api"),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../api.dart';
 import '../main.dart';
+import '../pins.dart';
 import '../theme.dart';
 import '../util/file_upload.dart' as web_util;
 import '../widgets.dart';
@@ -55,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.shield_outlined, size: 34, color: scheme.primary),
             const SizedBox(width: 12),
-            Text('Wakegraph',
+            Text('Blipradius',
                 style: Theme.of(context).textTheme.headlineMedium
                     ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
             const Spacer(),
@@ -72,6 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
         Text('See the blast radius of an API change before you merge — no property-file hunting.',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
         const SizedBox(height: 24),
+        _WhatChanged(api: api, open: open),
+        _PinnedApis(open: open),
         _EstateHealth(api: api, open: open),
         const SizedBox(height: 16),
         _CoverageCard(api: api, open: open),
@@ -82,7 +85,122 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// The honest limit of what Wakegraph can answer. Endpoint and field truth comes only from repo
+/// "Something new showed up in the estate" is the one thing worth interrupting for — everything
+/// else on this page is a state you go looking for.
+class _WhatChanged extends StatefulWidget {
+  final ApiClient api;
+  final OpenFn open;
+  const _WhatChanged({required this.api, required this.open});
+
+  @override
+  State<_WhatChanged> createState() => _WhatChangedState();
+}
+
+class _WhatChangedState extends State<_WhatChanged> {
+  bool _dismissed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    return FutureBuilder<GraphDto>(
+      future: widget.api.graph(),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done || snap.hasError) {
+          return const SizedBox.shrink();
+        }
+        final ids = snap.data!.nodes.where((n) => n.api).map((n) => n.id).toList();
+        final delta = EstateDelta.since(ids);
+        if (delta.isEmpty) {
+          EstateDelta.remember(ids);
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  const Icon(Icons.fiber_new_outlined, size: 20, color: AppColors.experience),
+                  const SizedBox(width: 8),
+                  Text('Since you last looked', style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      EstateDelta.remember(ids);
+                      setState(() => _dismissed = true);
+                    },
+                    child: const Text('Got it'),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final id in delta.added.take(12))
+                    ActionChip(
+                      avatar: const Icon(Icons.add, size: 15, color: AppColors.additive),
+                      label: Text(id),
+                      onPressed: () => widget.open(Tabs.apiHub, api: id),
+                    ),
+                  for (final id in delta.removed.take(12))
+                    Chip(
+                      avatar: const Icon(Icons.remove, size: 15, color: AppColors.neutral),
+                      label: Text(id, style: const TextStyle(decoration: TextDecoration.lineThrough)),
+                    ),
+                ]),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A developer owns two or three APIs out of a hundred. Those go first, or the dashboard is
+/// someone else's estate report.
+class _PinnedApis extends StatelessWidget {
+  final OpenFn open;
+  const _PinnedApis({required this.open});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Pins.instance,
+      builder: (context, _) {
+        final pinned = Pins.instance.pinned;
+        if (pinned.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Icon(Icons.push_pin, size: 18, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text('Your APIs', style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800)),
+                ]),
+                const SizedBox(height: 10),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final id in pinned)
+                    ActionChip(
+                      avatar: const Icon(Icons.api, size: 16),
+                      label: Text(id),
+                      onPressed: () => open(Tabs.apiHub, api: id),
+                    ),
+                ]),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The honest limit of what Blipradius can answer. Endpoint and field truth comes only from repo
 /// scans, so this card is both the credibility statement and the one action that improves it.
 class _CoverageCard extends StatelessWidget {
   final ApiClient api;
@@ -124,7 +242,7 @@ class _CoverageCard extends StatelessWidget {
                 complete
                     ? 'Every dependency is known per endpoint — field questions get a real yes or no.'
                     : '${c.shallow} of ${c.dependencies} dependencies are app-to-app only. For those, '
-                        'Wakegraph must treat every field as "maybe read". Registering those repos in '
+                        'Blipradius must treat every field as "maybe read". Registering those repos in '
                         'Sources turns each one into an answer.',
                 style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -206,6 +324,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
   final _repoUrl = TextEditingController();
 
   final List<String> _repos = [];
+  final List<LocalCandidate> _localCandidates = [];
   bool _anypointConfigured = false;
   String? _anypointOrgLabel;
   int _step = 0;
@@ -234,8 +353,12 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
   Future<void> _prime() async {
     try {
       final s = await widget.api.sourcesStatus();
+      final local = await widget.api.localCandidates();
       if (!mounted) return;
       setState(() {
+        _localCandidates
+          ..clear()
+          ..addAll(local.where((c) => !s.repos.contains(c.path)));
         _anypointConfigured = s.anypointConfigured;
         _anypointOrgLabel = _formatOrg(s.anypointOrg, s.anypointEnv);
         _repos.clear();
@@ -272,6 +395,24 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
         _anypointOrgLabel = _formatOrg(s.anypointOrg, s.anypointEnv);
         _clientSecret.clear();
         _step = 1;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _busy = false; _error = _clean(e); });
+    }
+  }
+
+  Future<void> _addLocal(String path) async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      final s = await widget.api.sourcesAddRepo(path);
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _repos
+          ..clear()
+          ..addAll(s.repos);
+        _localCandidates.removeWhere((c) => c.path == path);
       });
     } catch (e) {
       if (!mounted) return;
@@ -346,7 +487,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
             Row(children: [
               Icon(Icons.shield_outlined, size: 34, color: scheme.primary),
               const SizedBox(width: 12),
-              Text('Welcome to Wakegraph',
+              Text('Welcome to Blipradius',
                   style: Theme.of(context).textTheme.headlineMedium
                       ?.copyWith(fontWeight: FontWeight.w900, color: scheme.primary)),
             ]),
@@ -485,6 +626,36 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
       content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Paste a GitHub/Bitbucket repo URL, or an org URL — orgs expand to '
             'every repo they own. You can add more than one.'),
+        if (_localCandidates.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.additive.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.additive.withOpacity(0.3)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.folder_special_outlined, size: 18, color: AppColors.additive),
+                const SizedBox(width: 8),
+                Text('Mule projects already on this machine',
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final c in _localCandidates)
+                  ActionChip(
+                    avatar: const Icon(Icons.add, size: 15),
+                    label: Text('${c.name} · ${c.projects} project(s)'),
+                    tooltip: c.path,
+                    onPressed: _busy ? null : () => _addLocal(c.path),
+                  ),
+              ]),
+            ]),
+          ),
+        ],
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: TextField(
@@ -538,7 +709,7 @@ class _FirstRunWizardState extends State<_FirstRunWizard> {
       isActive: _step >= 2,
       title: const Text('Sync everything', style: TextStyle(fontWeight: FontWeight.w700)),
       content: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Wakegraph reads your Anypoint contracts and scans every registered repo '
+        const Text('Blipradius reads your Anypoint contracts and scans every registered repo '
             'for its Mule flows, property files and DataWeave lineage. First sync on a real org '
             'is typically 1–2 minutes.'),
         const SizedBox(height: 14),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api.dart';
+import '../pins.dart';
 import 'skeleton.dart';
 
 class SearchSelection {
@@ -67,8 +68,20 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
   }
 
   void _rebuildFlat(SearchResults r) {
+    // Pinned APIs lead: the working set a developer keeps coming back to should be one keystroke
+    // away, not buried under an alphabetical estate.
+    final pinned = Pins.instance.pinned;
+    final apis = [...r.apis]
+      ..sort((a, b) {
+        final pa = pinned.indexOf(a.api);
+        final pb = pinned.indexOf(b.api);
+        if (pa == pb) return 0;
+        if (pa < 0) return 1;
+        if (pb < 0) return -1;
+        return pa.compareTo(pb);
+      });
     final all = <SearchSelection>[
-      for (final a in r.apis) SearchSelection(api: a.api),
+      for (final a in apis) SearchSelection(api: a.api),
       for (final e in r.endpoints) SearchSelection(api: e.api, endpoint: e.endpoint),
       for (final f in r.fields) SearchSelection(api: f.api, endpoint: f.endpoint, field: f.field),
     ];
@@ -79,12 +92,19 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
   KeyEventResult _handleKey(FocusNode _, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     if (_flat.isEmpty) return KeyEventResult.ignored;
-    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+    // Ctrl-J / Ctrl-K move too, so a developer never has to leave the home row. Bare j/k would
+    // swallow the letters people are trying to type into the query.
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    final down = event.logicalKey == LogicalKeyboardKey.arrowDown ||
+        (ctrl && event.logicalKey == LogicalKeyboardKey.keyJ);
+    final up = event.logicalKey == LogicalKeyboardKey.arrowUp ||
+        (ctrl && event.logicalKey == LogicalKeyboardKey.keyK);
+    if (down) {
       setState(() => _focus = (_focus + 1) % _flat.length);
       _scrollFocusIntoView();
       return KeyEventResult.handled;
     }
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+    if (up) {
       setState(() => _focus = (_focus - 1 + _flat.length) % _flat.length);
       _scrollFocusIntoView();
       return KeyEventResult.handled;

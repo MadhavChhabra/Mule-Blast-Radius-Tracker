@@ -1,6 +1,6 @@
-# Wakegraph
+# Blipradius
 
-Wakegraph (formerly APIGuard, then FlowSight — renamed 2026-07-15 because FlowSight collides with
+Blipradius (formerly APIGuard, then FlowSight — renamed 2026-07-15 because FlowSight collides with
 an existing product; internal Java package is still `com.apiguard`) shows the blast
 radius of an API change across a MuleSoft estate: it detects breaking changes in OpenAPI/RAML
 specs, maps the *real* dependency network (Exchange + API Manager + Bitbucket/GitHub repo flows &

@@ -18,20 +18,20 @@ class InitCommandTest {
         int exit = new CommandLine(new InitCommand()).execute(
                 "--api", "orders-exp-api",
                 "--spec", "src/main/resources/api/orders.raml",
-                "--server", "https://wakegraph.example",
+                "--server", "https://blipradius.example",
                 "--dir", root.toString(),
                 "--no-color");
         assertEquals(0, exit);
 
-        Path config = root.resolve(".wakegraph.yml");
-        Path workflow = root.resolve(".github/workflows/wakegraph.yml");
+        Path config = root.resolve(".blipradius.yml");
+        Path workflow = root.resolve(".github/workflows/blipradius.yml");
         assertTrue(Files.exists(config), "config file");
         assertTrue(Files.exists(workflow), "workflow file");
 
         String cfg = Files.readString(config);
         assertTrue(cfg.contains("api: orders-exp-api"), cfg);
         assertTrue(cfg.contains("spec: src/main/resources/api/orders.raml"), cfg);
-        assertTrue(cfg.contains("server: https://wakegraph.example"), cfg);
+        assertTrue(cfg.contains("server: https://blipradius.example"), cfg);
         assertTrue(cfg.contains("apiKeySecret: WAKEGRAPH_API_KEY"), cfg);
 
         String wf = Files.readString(workflow);
@@ -55,7 +55,7 @@ class InitCommandTest {
         assertTrue(Files.exists(pipe));
         String body = Files.readString(pipe);
         assertTrue(body.contains("pipelines:"), body);
-        assertTrue(body.contains("java -jar wakegraph.jar impact"), body);
+        assertTrue(body.contains("java -jar blipradius.jar impact"), body);
         assertTrue(body.contains("--api orders-exp-api"), body);
         assertTrue(body.contains("BITBUCKET_PR_DESTINATION_BRANCH"), body);
         assertTrue(body.contains("WAKEGRAPH_API_KEY"), body);
@@ -63,7 +63,7 @@ class InitCommandTest {
 
     @Test
     void skipsExistingUnlessForce(@TempDir Path root) throws Exception {
-        Path config = root.resolve(".wakegraph.yml");
+        Path config = root.resolve(".blipradius.yml");
         Files.writeString(config, "keep: me\n");
 
         int exit = new CommandLine(new InitCommand()).execute(

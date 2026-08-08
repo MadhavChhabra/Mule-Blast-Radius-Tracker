@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../api.dart';
 import '../main.dart';
+import '../pins.dart';
 import '../theme.dart';
 import '../util/file_upload.dart';
 import '../widgets.dart';
@@ -46,17 +47,18 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Ordered by what a developer opens this screen to do: check a change first, then read the
+    // relationships behind the answer, then look back at history.
     return DefaultTabController(
-      length: 4,
+      length: 3,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _header(context),
-          const TabBar(isScrollable: true, tabs: [
-            Tab(text: 'Endpoints'),
+          const TabBar(tabs: [
             Tab(text: 'Change impact'),
-            Tab(text: 'Consumers & blast radius'),
-            Tab(text: 'Spec & history'),
+            Tab(text: 'Relationships'),
+            Tab(text: 'History'),
           ]),
           Expanded(
             child: _api == null
@@ -71,9 +73,9 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
                     ),
                   )
                 : TabBarView(children: [
-                    _EndpointsTab(api: widget.api, apiId: _api!, open: widget.open),
                     _ChangeImpactTab(api: widget.api, apiId: _api!),
-                    _ConsumersTab(api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
+                    _RelationshipsTab(
+                        api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
                     _HistoryTab(api: widget.api, apiId: _api!),
                   ]),
           ),
@@ -96,6 +98,20 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
                 style: Theme.of(context).textTheme.bodySmall),
           ]),
         ),
+        if (_api != null)
+          AnimatedBuilder(
+            animation: Pins.instance,
+            builder: (context, _) {
+              final pinned = Pins.instance.isPinned(_api!);
+              return IconButton(
+                tooltip: pinned ? 'Unpin this API' : 'Pin this API — it leads the search palette',
+                onPressed: () => Pins.instance.toggle(_api!),
+                icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    size: 20,
+                    color: pinned ? Theme.of(context).colorScheme.primary : null),
+              );
+            },
+          ),
         if (_api != null) _AnypointLinksButton(api: widget.api, apiId: _api!),
         const SizedBox(width: 8),
         OutlinedButton.icon(
@@ -183,11 +199,37 @@ class _AnypointRow extends StatelessWidget {
       ]);
 }
 
+/// "What does this API talk to, and who talks to it" is one question, so per-endpoint traffic and
+/// the API-level consumer list live on one surface instead of two tabs the user has to correlate.
+class _RelationshipsTab extends StatelessWidget {
+  final ApiClient api;
+  final String apiId;
+  final Future<GraphDto> graph;
+  final OpenFn? open;
+  const _RelationshipsTab(
+      {required this.api, required this.apiId, required this.graph, this.open});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _EndpointsTab(api: api, apiId: apiId, open: open, embedded: true),
+        const Divider(height: 32),
+        _ConsumersTab(api: api, apiId: apiId, graph: graph, open: open, embedded: true),
+      ],
+    );
+  }
+}
+
 class _EndpointsTab extends StatefulWidget {
   final ApiClient api;
   final String apiId;
   final OpenFn? open;
-  const _EndpointsTab({required this.api, required this.apiId, this.open});
+
+  /// Rendered inside a scrolling parent, so it must size to its content instead of expanding.
+  final bool embedded;
+  const _EndpointsTab({required this.api, required this.apiId, this.open, this.embedded = false});
 
   @override
   State<_EndpointsTab> createState() => _EndpointsTabState();
@@ -244,7 +286,11 @@ class _EndpointsTabState extends State<_EndpointsTab> {
       return _empty(context, 'No endpoints known for this API yet.',
           'Add its repo in Sources and Sync — flows + property files give per-endpoint detail.');
     }
-    return Column(children: [
+    final detail = _detail == null
+        ? const SizedBox()
+        : AsyncView<EndpointInspect>(
+            future: _detail!, builder: (context, d) => _directions(context, d));
+    return Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
         child: Row(children: [
@@ -268,11 +314,9 @@ class _EndpointsTabState extends State<_EndpointsTab> {
           ),
         ]),
       ),
-      Expanded(
-        child: _detail == null
-            ? const SizedBox()
-            : AsyncView<EndpointInspect>(future: _detail!, builder: (context, d) => _directions(context, d)),
-      ),
+      // The two direction columns are a stretched pair, so inside a scrolling page they need a
+      // bounded height of their own rather than an Expanded that has nothing to expand into.
+      if (widget.embedded) SizedBox(height: 420, child: detail) else Expanded(child: detail),
     ]);
   }
 
@@ -697,9 +741,19 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                   shape: BoxShape.circle)),
               title: Row(children: [
                 Text(f.field, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: f.isRequest ? 'Request field — callers send it' : 'Response field — consumers read it',
+                  child: Icon(f.isRequest ? Icons.north_east : Icons.south_west,
+                      size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
                 const SizedBox(width: 10),
-                Text(f.endpoint, style: TextStyle(fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                Flexible(
+                  child: Text(f.endpoint,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                ),
               ]),
               trailing: _FieldVerdict(field: f),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -707,16 +761,26 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
                 ...f.downstream.map((c) => ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: Icon(c.fieldConfirmed ? Icons.south_east : Icons.help_outline,
+                      leading: Icon(
+                          f.isRequest
+                              ? Icons.north_east
+                              : (c.fieldConfirmed ? Icons.south_east : Icons.help_outline),
                           size: 18,
-                          color: c.fieldConfirmed ? AppColors.breaking : AppColors.warning),
+                          color: f.isRequest || c.fieldConfirmed
+                              ? AppColors.breaking
+                              : AppColors.warning),
                       title: Text(c.consumer),
                       subtitle: Text([
-                        c.fieldConfirmed ? 'reads this field' : 'no field-level data — may or may not read it',
+                        if (f.isRequest)
+                          'calls this endpoint — must send this field'
+                        else
+                          c.fieldConfirmed
+                              ? 'reads this field'
+                              : 'no field-level data — may or may not read it',
                         if (c.ownerTeam != null) 'team ${c.ownerTeam}',
                         if (c.reviewers.isNotEmpty) 'reviewers ${c.reviewers.map((r) => r.replaceAll('gh:', '')).join(', ')}',
-                        if (c.slackChannel != null) 'slack ${c.slackChannel}',
                       ].join('  ·  '), style: const TextStyle(fontSize: 11)),
+                      trailing: _ConsumerActions(consumer: c),
                     )),
                 if (f.downstream.isNotEmpty)
                   Align(
@@ -743,6 +807,13 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
           if (c.reviewers.isNotEmpty) 'reviewers=${c.reviewers.join(',')}',
         ].join(' ');
     final b = StringBuffer('Before changing "${f.field}" — $api ${f.endpoint}\n');
+    if (f.isRequest) {
+      b.writeln('Request field — every caller of this endpoint has to send it:');
+      for (final c in f.downstream) {
+        b.writeln('  [ ] ${c.consumer} — update the request it sends (${who(c)})');
+      }
+      return b.toString();
+    }
     final confirmed = f.downstream.where((c) => c.fieldConfirmed);
     final unknown = f.downstream.where((c) => !c.fieldConfirmed);
     if (confirmed.isNotEmpty) {
@@ -761,6 +832,51 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
   }
 }
 
+/// Knowing who to tell is only half the job — these turn the owner metadata into the message.
+class _ConsumerActions extends StatelessWidget {
+  final ConsumerDto consumer;
+  const _ConsumerActions({required this.consumer});
+
+  @override
+  Widget build(BuildContext context) {
+    final slack = consumer.slackChannel;
+    final reviewers = consumer.reviewers.map((r) => '@${r.replaceAll('gh:', '')}').toList();
+    if (slack == null && reviewers.isEmpty && consumer.sourceRepo == null) {
+      return const SizedBox.shrink();
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (slack != null)
+        IconButton(
+          tooltip: 'Open $slack in Slack',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.forum_outlined, size: 17),
+          onPressed: () => openExternal(
+              'https://slack.com/app_redirect?channel=${Uri.encodeComponent(slack.replaceFirst('#', ''))}'),
+        ),
+      if (reviewers.isNotEmpty)
+        IconButton(
+          tooltip: 'Copy reviewer mentions (${reviewers.join(' ')})',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.alternate_email, size: 17),
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: reviewers.join(' ')));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('Reviewer mentions copied')));
+          },
+        ),
+      if (consumer.sourceRepo != null)
+        IconButton(
+          tooltip: 'Open ${consumer.sourceRepo}',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.open_in_new, size: 17),
+          onPressed: () => openExternal(consumer.sourceRepo!.startsWith('http')
+              ? consumer.sourceRepo!
+              : 'https://github.com/${consumer.sourceRepo}'),
+        ),
+    ]);
+  }
+}
+
 /// The verdict a developer acts on: a proven reader is a blocker, a consumer with no field-level
 /// data is a question to ask, and neither is safe to show as the same number.
 class _FieldVerdict extends StatelessWidget {
@@ -769,9 +885,19 @@ class _FieldVerdict extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (field.confirmedCount == 0 && field.unknownCount == 0) {
+    if (field.consumerCount == 0) {
       return const Text('safe',
           style: TextStyle(color: AppColors.additive, fontWeight: FontWeight.w700, fontSize: 12));
+    }
+    if (field.isRequest) {
+      // Nobody can prove who sends a field, but everyone who calls the endpoint has to change.
+      return Tooltip(
+        message: 'Callers of this endpoint build the request, so a new or changed required field '
+            'affects all of them.',
+        child: Text('${field.consumerCount} must send it',
+            style: const TextStyle(
+                color: AppColors.breaking, fontWeight: FontWeight.w700, fontSize: 12)),
+      );
     }
     return Row(mainAxisSize: MainAxisSize.min, children: [
       if (field.confirmedCount > 0)
@@ -827,7 +953,9 @@ class _ConsumersTab extends StatelessWidget {
   final String apiId;
   final Future<GraphDto> graph;
   final OpenFn? open;
-  const _ConsumersTab({required this.api, required this.apiId, required this.graph, this.open});
+  final bool embedded;
+  const _ConsumersTab({required this.api, required this.apiId, required this.graph, this.open,
+      this.embedded = false});
 
   @override
   Widget build(BuildContext context) {
@@ -851,7 +979,11 @@ class _ConsumersTab extends StatelessWidget {
         final consumers = g.edges.where((e) => e.to == apiId).toList();
         final deps = g.edges.where((e) => e.from == apiId).toList();
         final breaking = consumers.where((e) => e.risk == 'breaking').length;
-        return ListView(padding: const EdgeInsets.all(24), children: [
+        return ListView(
+            padding: const EdgeInsets.all(24),
+            shrinkWrap: embedded,
+            physics: embedded ? const NeverScrollableScrollPhysics() : null,
+            children: [
           if (breaking > 0)
             Container(
               padding: const EdgeInsets.all(14),

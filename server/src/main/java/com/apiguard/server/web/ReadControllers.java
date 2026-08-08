@@ -81,4 +81,9 @@ public class ReadControllers {
     public Dtos.GraphDto graph() {
         return graphService.build();
     }
+
+    @GetMapping("/api/apis/{name}/reach")
+    public Dtos.ReachDto reach(@PathVariable String name) {
+        return graphService.reach(name);
+    }
 }

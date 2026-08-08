@@ -1,6 +1,6 @@
-name: Wakegraph
+name: Blipradius
 
-# Demonstrates the Wakegraph gate on every pull request. This repo ships two sample
+# Demonstrates the Blipradius gate on every pull request. This repo ships two sample
 # specs (v1 -> v2) with intentional breaking changes, so the check always produces a
 # report and a PR comment. Set `fail-on-breaking: true` to turn it into a hard gate.
 #
@@ -14,18 +14,18 @@ permissions:
   pull-requests: write   # required to post the PR comment
 
 concurrency:
-  group: wakegraph-${{ github.ref }}
+  group: blipradius-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  wakegraph:
+  blipradius:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Wakegraph (demo: v1 -> v2)
+      - name: Run Blipradius (demo: v1 -> v2)
         uses: ./action
         with:
           old-spec: samples/orders-api/openapi-v1.yaml

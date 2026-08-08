@@ -56,13 +56,15 @@ apiguard:
   # persist a secret will refuse to run until this is set. Rotate by re-encrypting all stored
   # values.
   security:
+    # Fixed-window cap per client address on /api/* (health exempt). 0 disables it.
+    rate-limit-per-minute: ${APIGUARD_RATE_LIMIT:600}
     encryption-key: ${APIGUARD_ENCRYPTION_KEY:}
     # When no explicit key is set, one is generated and kept in this file so saved secrets survive
     # restarts with zero setup (ideal for the desktop app). On a shared server set APIGUARD_ENCRYPTION_KEY
     # instead and back it up. Blank both to run without at-rest encryption (credentials then stay in memory).
     key-file: ${APIGUARD_KEY_FILE:${user.home}/.apiguard/credential.key}
   # Structured JSON logs — activate the `json` Spring profile (spring.profiles.active=json)
-  # and Wakegraph emits Logstash-formatted lines suitable for a log aggregator.
+  # and Blipradius emits Logstash-formatted lines suitable for a log aggregator.
   logging:
     json: false
   # Repo scanning. `allow-local-paths` lets a source be a filesystem path instead of a git URL —
@@ -70,6 +72,9 @@ apiguard:
   # process can reach), so turn it off there.
   scan:
     allow-local-paths: ${APIGUARD_ALLOW_LOCAL_PATHS:true}
+    # Skip repos whose remote HEAD has not moved since the last successful scan (one ls-remote
+    # instead of a clone). A repo whose HEAD cannot be read is always scanned in full.
+    incremental: ${APIGUARD_INCREMENTAL_SCAN:true}
   # GitHub integration — leave blank to disable (the app then only logs what it would do).
   github:
     token: ${GITHUB_TOKEN:}
@@ -96,6 +101,14 @@ apiguard:
 # Allow the Flutter dashboard (dev server) to call the API.
 cors:
   allowed-origins: ${CORS_ORIGINS:http://localhost:*}
+
+# Blipradius's own REST API, for anyone wiring it into CI or another tool.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /api-docs
+    operations-sorter: alpha
 
 management:
   endpoints:

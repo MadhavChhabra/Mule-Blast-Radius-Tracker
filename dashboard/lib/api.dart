@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 final String apiBase = _resolveApiBase();
 
-/// A release bundle is always served by the Wakegraph server itself, so it talks to its own origin
+/// A release bundle is always served by the Blipradius server itself, so it talks to its own origin
 /// — whatever port, hostname or reverse proxy it sits behind. Only `flutter run -d chrome`, which
 /// serves a debug build from a throwaway port with no API on it, needs the localhost fallback.
 String _resolveApiBase() {
@@ -144,7 +144,7 @@ class ApiClient {
     try {
       return SourcesStatus.fromJson(await _get('/api/sources'));
     } catch (_) {
-      return SourcesStatus(false, null, null, null, const []);
+      return SourcesStatus(false, null, null, null, const [], const []);
     }
   }
 
@@ -162,6 +162,21 @@ class ApiClient {
     });
     return SourcesStatus.fromJson(r);
   }
+
+  Future<List<LocalCandidate>> localCandidates() async {
+    try {
+      final r = await _get('/api/sources/local-candidates');
+      return (r as List).map((e) => LocalCandidate.fromJson(e)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<ConnectionTest> testAnypoint() async =>
+      ConnectionTest.fromJson(await _post('/api/sources/anypoint/test', {}));
+
+  Future<Reach> reach(String api) async =>
+      Reach.fromJson(await _get('/api/apis/${Uri.encodeComponent(api)}/reach'));
 
   Future<SourcesStatus> sourcesDisconnectAnypoint() async =>
       SourcesStatus.fromJson(await _post('/api/sources/anypoint/disconnect', {}));
@@ -236,10 +251,10 @@ class ApiClient {
     try {
       return await send().timeout(timeout);
     } on TimeoutException {
-      throw Exception('The Wakegraph server did not respond within '
+      throw Exception('The Blipradius server did not respond within '
           '${timeout.inSeconds}s. It may be busy syncing, or unreachable.');
     } on http.ClientException catch (e) {
-      throw Exception('Could not reach the Wakegraph server at '
+      throw Exception('Could not reach the Blipradius server at '
           '${apiBase.isEmpty ? "this address" : apiBase}. ${e.message}');
     }
   }
@@ -255,7 +270,7 @@ class ApiClient {
     if (status == 403) return 'Not allowed (403).';
     if (status == 404) return 'Not found (404).';
     if (status == 429) return 'The server is rate-limiting requests (429). Try again shortly.';
-    if (status >= 500) return 'The Wakegraph server hit an error ($status). Check its logs.';
+    if (status >= 500) return 'The Blipradius server hit an error ($status). Check its logs.';
     return 'Request failed ($status)';
   }
 }
@@ -276,7 +291,7 @@ class HealthInfo {
   HealthInfo(this.status, this.name, this.version, this.uptimeSeconds, this.authRequired);
   bool get up => status == 'UP';
   factory HealthInfo.fromJson(Map<String, dynamic> j) => HealthInfo(
-      j['status'] ?? 'UNKNOWN', j['name'] ?? 'Wakegraph', j['version'] ?? '',
+      j['status'] ?? 'UNKNOWN', j['name'] ?? 'Blipradius', j['version'] ?? '',
       j['uptimeSeconds'] ?? 0, j['authRequired'] == true);
 }
 
@@ -365,16 +380,22 @@ class EndpointInspect {
 
 class PropagationField {
   final String endpoint, field;
+
+  /// 'response' — consumers read this field. 'request' — callers have to send it.
+  final String side;
   final int consumerCount, confirmedCount;
   final List<ConsumerDto> downstream;
   final List<UpstreamDto> upstream;
-  PropagationField(this.endpoint, this.field, this.consumerCount, this.confirmedCount,
+  PropagationField(this.endpoint, this.field, this.side, this.consumerCount, this.confirmedCount,
       this.downstream, this.upstream);
+
+  bool get isRequest => side == 'request';
 
   /// Consumers matched without field-level evidence — reported, but not proven readers.
   int get unknownCount => consumerCount - confirmedCount;
   factory PropagationField.fromJson(Map<String, dynamic> j) => PropagationField(
-      j['endpoint'], j['field'], j['consumerCount'] ?? 0, j['confirmedCount'] ?? 0,
+      j['endpoint'], j['field'], j['side'] ?? 'response',
+      j['consumerCount'] ?? 0, j['confirmedCount'] ?? 0,
       (j['downstream'] as List?)?.map((e) => ConsumerDto.fromJson(e)).toList() ?? [],
       (j['upstream'] as List?)?.map((e) => UpstreamDto.fromJson(e)).toList() ?? []);
 }
@@ -533,16 +554,62 @@ class LatestSpec {
   LatestSpec(this.versionLabel, this.savedAt, this.spec);
 }
 
+class LocalCandidate {
+  final String path, name;
+  final int projects;
+  const LocalCandidate(this.path, this.name, this.projects);
+  factory LocalCandidate.fromJson(Map<String, dynamic> j) =>
+      LocalCandidate(j['path'] ?? '', j['name'] ?? '', j['projects'] ?? 0);
+}
+
+class ConnectionTest {
+  final bool ok;
+  final String? orgId, environment, message;
+  final int environments;
+  const ConnectionTest(this.ok, this.orgId, this.environment, this.environments, this.message);
+  factory ConnectionTest.fromJson(Map<String, dynamic> j) => ConnectionTest(
+      j['ok'] == true, j['orgId'], j['environment'], j['environments'] ?? 0, j['message']);
+}
+
+class Reach {
+  final String api;
+  final List<String> direct, transitive;
+  const Reach(this.api, this.direct, this.transitive);
+  factory Reach.fromJson(Map<String, dynamic> j) => Reach(
+      j['api'] ?? '',
+      (j['direct'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      (j['transitive'] as List?)?.map((e) => e.toString()).toList() ?? const []);
+}
+
+class RepoSource {
+  final String url;
+  final String? lastSyncedAt, lastError;
+  final int? lastApps;
+  const RepoSource(this.url, this.lastSyncedAt, this.lastApps, this.lastError);
+  bool get neverSynced => lastSyncedAt == null;
+  factory RepoSource.fromJson(Map<String, dynamic> j) =>
+      RepoSource(j['url'] ?? '', j['lastSyncedAt'], j['lastApps'], j['lastError']);
+}
+
 class SourcesStatus {
   final bool anypointConfigured;
   final String? anypointOrg, anypointEnv, anypointBaseUrl;
   final List<String> repos;
+  final List<RepoSource> repoDetails;
   SourcesStatus(this.anypointConfigured, this.anypointOrg, this.anypointEnv,
-      this.anypointBaseUrl, this.repos);
+      this.anypointBaseUrl, this.repos, this.repoDetails);
+  RepoSource? detailFor(String url) {
+    for (final d in repoDetails) {
+      if (d.url == url) return d;
+    }
+    return null;
+  }
+
   factory SourcesStatus.fromJson(Map<String, dynamic> j) => SourcesStatus(
       j['anypointConfigured'] == true, j['anypointOrg'], j['anypointEnv'],
       j['anypointBaseUrl'],
-      (j['repos'] as List?)?.map((e) => e.toString()).toList() ?? const []);
+      (j['repos'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      (j['repoDetails'] as List?)?.map((e) => RepoSource.fromJson(e)).toList() ?? const []);
 }
 
 class RepoResult {

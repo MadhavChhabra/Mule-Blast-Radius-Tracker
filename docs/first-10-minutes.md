@@ -1,4 +1,4 @@
-# Your first 10 minutes with Wakegraph
+# Your first 10 minutes with Blipradius
 
 This is the shortest path from "I cloned the repo" to "I can see my estate and gate a PR". It assumes:
 
@@ -19,7 +19,7 @@ cd .. && ./gradlew :cli:shadowJar :server:bootJar
 
 You now have:
 
-- `cli/build/libs/apiguard.jar` — the `wakegraph` CLI
+- `cli/build/libs/apiguard.jar` — the `blipradius` CLI
 - `server/build/libs/*.jar` — the server; it also serves the dashboard at `/`
 
 ## Minute 1 — start the server empty
@@ -38,7 +38,7 @@ Open [http://localhost:8080](http://localhost:8080). The estate is empty on purp
 The Home screen shows a 3-step card ("Connect your sources → Sync → Explore"). Click **Get started**.
 
 1. **Anypoint** — paste your Connected App `client_id` / `client_secret`, pick your control-plane region.
-2. **Repos** — paste one GitHub or Bitbucket URL. It can be a single repo (`.../org/repo`) or an org (`.../org`) — Wakegraph expands orgs to all their repos.
+2. **Repos** — paste one GitHub or Bitbucket URL. It can be a single repo (`.../org/repo`) or an org (`.../org`) — Blipradius expands orgs to all their repos.
 3. **Sync everything** — you'll see a progress bar with a *Cancel* button. On a real 100-app org the first sync is ~2 minutes.
 
 When it finishes, Home shows: how many APIs, how many breaking edges (from any known analyzes), the top depended-on APIs, and any governance findings (upward calls, cycles, layer skips).
@@ -73,19 +73,19 @@ In the repo whose spec you own:
 java -jar path/to/apiguard.jar init \
     --api orders-exp-api \
     --spec src/main/resources/api/orders.raml \
-    --server https://wakegraph.yourco.internal
+    --server https://blipradius.yourco.internal
 ```
 
 This writes:
 
-- `.wakegraph.yml` — the project config (api name, spec path, base branch, server URL, secret name).
-- `.github/workflows/wakegraph.yml` (or `bitbucket-pipelines.yml` with `--ci bitbucket`) — a workflow that runs on every PR touching the spec.
+- `.blipradius.yml` — the project config (api name, spec path, base branch, server URL, secret name).
+- `.github/workflows/blipradius.yml` (or `bitbucket-pipelines.yml` with `--ci bitbucket`) — a workflow that runs on every PR touching the spec.
 
 Add a repository secret named `WAKEGRAPH_API_KEY` if your server has API-key auth on.
 
 ## Minute 9 — see the PR comment
 
-Open a PR that changes your spec. Wakegraph posts one comment with:
+Open a PR that changes your spec. Blipradius posts one comment with:
 
 - 🟥/🟧/🟨/🟩 risk tile + recommended semver bump.
 - The full impact table.
