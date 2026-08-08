@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SpecArchiveServiceTest {
@@ -68,5 +69,42 @@ class SpecArchiveServiceTest {
         assertTrue(extracted.spec().contains("customerId"),
                 () -> "the !include'd type's fields should be inlined:\n" + extracted.spec());
         assertTrue(extracted.title().contains("Orders"), extracted.title());
+    }
+
+    @Test
+    void refusesAnArchiveThatExpandsPastTheSizeCap() throws IOException {
+        // ~1 KB of zeroes compresses to almost nothing but expands past the cap when repeated:
+        // the classic zip bomb the extractor must refuse rather than write to disk.
+        String chunk = "0".repeat(1024 * 1024);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(bos)) {
+            for (int i = 0; i < 128; i++) {
+                zos.putNextEntry(new ZipEntry("pad/" + i + ".txt"));
+                zos.write(chunk.getBytes(StandardCharsets.UTF_8));
+                zos.closeEntry();
+            }
+        }
+
+        SpecArchiveService service = new SpecArchiveService();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.fromZip(new ByteArrayInputStream(bos.toByteArray())));
+        assertTrue(e.getMessage().contains("MB"), e.getMessage());
+    }
+
+    @Test
+    void refusesAnArchiveWithTooManyEntries() throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(bos)) {
+            for (int i = 0; i <= SpecArchiveService.MAX_ENTRIES; i++) {
+                zos.putNextEntry(new ZipEntry("f" + i + ".txt"));
+                zos.write('x');
+                zos.closeEntry();
+            }
+        }
+
+        SpecArchiveService service = new SpecArchiveService();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.fromZip(new ByteArrayInputStream(bos.toByteArray())));
+        assertTrue(e.getMessage().contains("entries"), e.getMessage());
     }
 }

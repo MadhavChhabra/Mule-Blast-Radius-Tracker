@@ -68,6 +68,18 @@ class ApiKeySecurityTest {
     }
 
     @Test
+    void actuatorMetricsRequireTheKey() {
+        ResponseEntity<String> r = rest.getForEntity(url("/actuator/prometheus"), String.class);
+        assertEquals(HttpStatus.UNAUTHORIZED, r.getStatusCode());
+    }
+
+    @Test
+    void actuatorHealthStaysOpenForContainerProbes() {
+        ResponseEntity<String> r = rest.getForEntity(url("/actuator/health"), String.class);
+        assertEquals(HttpStatus.OK, r.getStatusCode());
+    }
+
+    @Test
     void healthReportsAuthRequiredWhenKeyConfigured() {
         ResponseEntity<String> r = rest.getForEntity(url("/api/health"), String.class);
         assertEquals(HttpStatus.OK, r.getStatusCode());

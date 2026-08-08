@@ -40,7 +40,7 @@ public class SecurityPostureLogger implements ApplicationListener<ApplicationRea
             log.warn("""
 
                     ****************************************************************
-                    * Wakegraph is running WITHOUT API-key authentication.        *
+                    * Wakegraph is running WITHOUT API-key authentication.         *
                     * All /api/* endpoints are open — anyone who can reach this    *
                     * server can read your estate and trigger syncs, and it holds  *
                     * Anypoint credentials and repo tokens.                        *

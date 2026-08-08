@@ -1,6 +1,7 @@
 package com.apiguard.server.web;
 
 import com.apiguard.server.service.PropagationService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,7 +20,7 @@ public class PropagationController {
     }
 
     @PostMapping("/api/propagation")
-    public Dtos.PropagationResponse propagate(@RequestBody PropagationRequest req) {
+    public Dtos.PropagationResponse propagate(@Valid @RequestBody PropagationRequest req) {
         return propagation.propagate(req.api().trim(), req.spec());
     }
 }

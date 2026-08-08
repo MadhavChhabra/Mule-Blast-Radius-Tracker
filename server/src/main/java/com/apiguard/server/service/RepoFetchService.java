@@ -2,6 +2,7 @@ package com.apiguard.server.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -15,6 +16,12 @@ public class RepoFetchService {
 
     private static final Logger log = LoggerFactory.getLogger(RepoFetchService.class);
 
+    private final boolean allowLocalPaths;
+
+    public RepoFetchService(@Value("${apiguard.scan.allow-local-paths:true}") boolean allowLocalPaths) {
+        this.allowLocalPaths = allowLocalPaths;
+    }
+
     public record Fetched(Path dir, boolean temporary) {
     }
 
@@ -23,10 +30,46 @@ public class RepoFetchService {
             return false;
         }
         String s = source.trim();
-        return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("git@") || s.endsWith(".git");
+        return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("ssh://")
+                || s.startsWith("git://") || s.startsWith("git@") || s.endsWith(".git");
+    }
+
+    // A clone URL reaches `git` as an argument, so anything that could be read as an option
+    // (`--upload-pack=…`) or as an alternate transport (`ext::sh -c …`) is rejected before it
+    // gets there; the `--` separator below is the second line of defence.
+    public static void requireSafeCloneUrl(String url) {
+        String s = url == null ? "" : url.trim();
+        if (s.isEmpty()) {
+            throw new IllegalArgumentException("Repo URL is required.");
+        }
+        if (s.startsWith("-")) {
+            throw new IllegalArgumentException("Repo URL must not start with '-'.");
+        }
+        boolean scpLike = s.startsWith("git@");
+        boolean schemed = s.startsWith("http://") || s.startsWith("https://")
+                || s.startsWith("ssh://") || s.startsWith("git://");
+        if (!scpLike && !schemed) {
+            throw new IllegalArgumentException(
+                    "Unsupported repo URL. Use http(s)://, ssh://, git:// or git@host:org/repo.");
+        }
+    }
+
+    // Checked when a source is registered as well as when it is cloned, so a bad URL fails
+    // immediately in Sources instead of surfacing as one broken row mid-sync.
+    public void validateSource(String source) {
+        if (isGitUrl(source)) {
+            requireSafeCloneUrl(source);
+            return;
+        }
+        if (!allowLocalPaths) {
+            throw new IllegalArgumentException(
+                    "Local filesystem paths are disabled on this server "
+                            + "(apiguard.scan.allow-local-paths=false). Register a git URL instead.");
+        }
     }
 
     public Fetched fetch(String source) {
+        validateSource(source);
         if (!isGitUrl(source)) {
             return new Fetched(Path.of(source), false);
         }
@@ -62,7 +105,7 @@ public class RepoFetchService {
         try {
             logFile = Files.createTempFile("apiguard-clone-", ".log");
             ProcessBuilder pb = new ProcessBuilder(
-                    "git", "clone", "--depth", "1", "--no-tags", url, target.toString());
+                    "git", "clone", "--depth", "1", "--no-tags", "--", url, target.toString());
 
             pb.environment().put("GIT_TERMINAL_PROMPT", "0");
             pb.environment().put("GCM_INTERACTIVE", "Never");

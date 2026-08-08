@@ -75,10 +75,22 @@ public class SpecArchiveService {
         return new ExtractedSpec(title, version, Yaml.pretty(api));
     }
 
+    public static final int MAX_ENTRIES = 2000;
+    public static final long MAX_TOTAL_BYTES = 64L * 1024 * 1024;
+
+    // An Exchange asset is a handful of small text files. Caps keep a malicious or corrupt
+    // archive (zip bomb, path traversal) from filling the disk of a shared server.
     private void unzip(InputStream in, Path target) throws IOException {
+        long written = 0;
+        int entries = 0;
+        byte[] buffer = new byte[8192];
         try (ZipInputStream zip = new ZipInputStream(in)) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
+                if (++entries > MAX_ENTRIES) {
+                    throw new IllegalArgumentException(
+                            "Archive has more than " + MAX_ENTRIES + " entries — refusing to extract it.");
+                }
                 Path resolved = target.resolve(entry.getName()).normalize();
                 if (!resolved.startsWith(target)) {
                     continue;
@@ -87,7 +99,18 @@ public class SpecArchiveService {
                     Files.createDirectories(resolved);
                 } else {
                     Files.createDirectories(resolved.getParent());
-                    Files.copy(zip, resolved);
+                    try (var out = Files.newOutputStream(resolved)) {
+                        int read;
+                        while ((read = zip.read(buffer)) > 0) {
+                            written += read;
+                            if (written > MAX_TOTAL_BYTES) {
+                                throw new IllegalArgumentException(
+                                        "Archive expands beyond " + (MAX_TOTAL_BYTES / (1024 * 1024))
+                                                + " MB — refusing to extract it.");
+                            }
+                            out.write(buffer, 0, read);
+                        }
+                    }
                 }
                 zip.closeEntry();
             }

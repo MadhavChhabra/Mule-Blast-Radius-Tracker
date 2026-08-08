@@ -30,16 +30,24 @@ public class WebhookController {
     private final String secret;
     private final String specPath;
     private final String apiName;
+    private final boolean allowUnsigned;
 
     public WebhookController(AnalysisService analysisService, GitHubClient github,
                              @Value("${apiguard.github.webhook-secret:}") String secret,
                              @Value("${apiguard.webhook.spec-path:}") String specPath,
-                             @Value("${apiguard.webhook.api-name:}") String apiName) {
+                             @Value("${apiguard.webhook.api-name:}") String apiName,
+                             @Value("${apiguard.github.webhook-allow-unsigned:false}") boolean allowUnsigned) {
         this.analysisService = analysisService;
         this.github = github;
         this.secret = secret;
         this.specPath = specPath;
         this.apiName = apiName;
+        this.allowUnsigned = allowUnsigned;
+        if ((secret == null || secret.isBlank()) && allowUnsigned) {
+            log.warn("/webhooks/github accepts UNSIGNED payloads "
+                    + "(apiguard.github.webhook-allow-unsigned=true). Set apiguard.github.webhook-secret "
+                    + "before exposing this server.");
+        }
     }
 
     @PostMapping("/webhooks/github")
@@ -48,7 +56,13 @@ public class WebhookController {
             @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature,
             @RequestBody String body) {
 
-        if (!verifySignature(body, signature)) {
+        if (secret == null || secret.isBlank()) {
+            if (!allowUnsigned) {
+                log.warn("Rejected a GitHub webhook: no apiguard.github.webhook-secret is configured.");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body("webhook signing is not configured on this server");
+            }
+        } else if (!verifySignature(body, signature)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("invalid signature");
         }
         if (!"pull_request".equals(event)) {
@@ -83,14 +97,11 @@ public class WebhookController {
             return ResponseEntity.ok("analyzed: " + response.summary().breaking() + " breaking change(s)");
         } catch (Exception e) {
             log.error("Webhook processing failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("error: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("webhook processing failed");
         }
     }
 
     private boolean verifySignature(String body, String signature) {
-        if (secret == null || secret.isBlank()) {
-            return true;
-        }
         if (signature == null || !signature.startsWith("sha256=")) {
             return false;
         }

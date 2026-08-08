@@ -24,15 +24,25 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     public ApiKeyFilter(@Value("${apiguard.security.api-key:${APIGUARD_API_KEY_SERVER:}}") String apiKey) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         if (!this.apiKey.isEmpty()) {
-            log.info("API-key auth is ON for /api/* (X-API-Key or Bearer).");
+            log.info("API-key auth is ON for /api/* and /actuator/* (X-API-Key or Bearer).");
         }
+    }
+
+    // Health stays open so container/load-balancer probes keep working without the key;
+    // everything else behind /api and /actuator (metrics expose the estate's API names) needs it.
+    private static boolean isProbe(String uri) {
+        return "/api/health".equals(uri)
+                || "/actuator/health".equals(uri)
+                || uri.startsWith("/actuator/health/");
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        boolean guarded = uri.startsWith("/api/") || uri.startsWith("/actuator");
         return apiKey.isEmpty()
-                || !request.getRequestURI().startsWith("/api/")
-                || "/api/health".equals(request.getRequestURI())
+                || !guarded
+                || isProbe(uri)
                 || "OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 

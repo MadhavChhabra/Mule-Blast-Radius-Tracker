@@ -2,6 +2,7 @@ package com.apiguard.server.web;
 
 import com.apiguard.server.service.AnalysisService;
 import com.apiguard.server.service.AuditService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,7 +33,7 @@ public class AnalyzeController {
     }
 
     @PostMapping
-    public Dtos.AnalyzeResponse analyze(@RequestBody AnalyzeRequest req) {
+    public Dtos.AnalyzeResponse analyze(@Valid @RequestBody AnalyzeRequest req) {
         Dtos.AnalyzeResponse response = analysisService.analyze(new AnalysisService.AnalyzeCommand(
                 req.api(), req.repo(), req.oldSpec(), req.newSpec(),
                 req.fromLabel(), req.toLabel(), req.prRef(), req.notifyPr()));
