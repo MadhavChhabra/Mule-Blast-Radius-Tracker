@@ -418,6 +418,10 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
     return s;
   }
 
+  /// Corner panels clear the centred command bar once the window is too narrow to sit beside it.
+  static double _cornerBottom(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < 1150 ? 96 : 30;
+
   void _zoom(double delta) =>
       setState(() => _scale = (_scale + delta).clamp(0.3, 2.0));
 
@@ -442,10 +446,14 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
     });
 
     final canvasW = _Layout.totalWidth();
-    final rows = _Layout.layers
-        .map((l) => widget.graph.nodes.where((n) => n.layer == l).length)
-        .fold<int>(0, math.max);
-    final canvasH = _Layout.rowTop + math.max(rows, 3) * _Layout.rowPitch + 160;
+    // Size to the tallest column that is actually drawn — padding it to a fixed three rows left a
+    // dead scroll void under small estates.
+    final rows = _positions.isEmpty
+        ? 1
+        : _Layout.layers
+            .map((l) => _positions.values.where((p) => p.node.layer == l).length)
+            .fold<int>(1, math.max);
+    final canvasH = _Layout.rowTop + rows * _Layout.rowPitch + 60;
 
     return Focus(
       autofocus: true,
@@ -551,8 +559,12 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
           ),
 
           // ---- docked chrome ----
+          // The comp docks these three at bottom:30 across a 1440px bar. Narrower than ~1150 the
+          // centred command bar runs into the corner panels, so they step up above it instead of
+          // overlapping — the map is a console, and chrome must never cover chrome.
           if (!focusing) ...[
-            Positioned(left: 28, bottom: 30, child: _SummaryPanel(graph: widget.graph)),
+            Positioned(
+                left: 28, bottom: _cornerBottom(context), child: _SummaryPanel(graph: widget.graph)),
             Positioned(
               right: 28,
               top: 96,
@@ -568,7 +580,7 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
           if (focusing)
             Positioned(
               right: 28,
-              bottom: 30,
+              bottom: _cornerBottom(context),
               width: 340,
               child: _WhoToTell(
                 api: widget.api,
@@ -580,7 +592,7 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
           if (!focusing)
             Positioned(
               right: 28,
-              bottom: 30,
+              bottom: _cornerBottom(context),
               child: _ZoomCluster(
                 scale: _scale,
                 onZoom: _zoom,
