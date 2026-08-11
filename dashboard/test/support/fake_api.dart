@@ -17,10 +17,10 @@ const _graph = '''
  {"id":"orders-sys-api","label":"orders-sys-api","layer":"SYSTEM","api":true,"dependsOn":0,"dependedOnBy":1},
  {"id":"web-checkout-app","label":"web-checkout-app","layer":"APP","api":false,"dependsOn":1,"dependedOnBy":0}
 ],"edges":[
- {"from":"web-checkout-app","to":"orders-exp-api","label":"","risk":"breaking","via":["GET /orders"]},
- {"from":"orders-exp-api","to":"orders-proc-api","label":"","risk":"none","via":[]},
- {"from":"orders-proc-api","to":"orders-sys-api","label":"","risk":"none","via":[]}
-]}''';
+ {"from":"web-checkout-app","to":"orders-exp-api","label":"","risk":"breaking","via":["GET /orders"],"endpointLevel":true,"fieldLevel":true},
+ {"from":"orders-exp-api","to":"orders-proc-api","label":"","risk":"none","via":[],"endpointLevel":true,"fieldLevel":false},
+ {"from":"orders-proc-api","to":"orders-sys-api","label":"","risk":"none","via":[],"endpointLevel":false,"fieldLevel":false}
+],"coverage":{"dependencies":3,"endpointLevel":2,"fieldLevel":1}}''';
 
 const _insights =
     '''[{"rule":"upward-call","severity":"high","title":"orders-sys-api calls orders-exp-api","detail":"A System API depends on an Experience API.","apis":["orders-sys-api"]}]''';

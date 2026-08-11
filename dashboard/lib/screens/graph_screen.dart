@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -37,7 +38,10 @@ class _GraphScreenState extends State<GraphScreen> {
   FocusDirection _direction = FocusDirection.downstream;
   bool _governance = true;
   bool _riskOnly = false;
-  final Set<String> _hiddenLayers = {};
+
+  /// Replaced wholesale rather than mutated: `_Estate` compares old and new to decide whether to
+  /// re-lay the map, and an in-place edit leaves both sides pointing at the same Set.
+  Set<String> _hiddenLayers = const {};
 
   @override
   void initState() {
@@ -116,7 +120,9 @@ class _GraphScreenState extends State<GraphScreen> {
           onGovernance: (v) => setState(() => _governance = v),
           onRiskOnly: (v) => setState(() => _riskOnly = v),
           onToggleLayer: (l) => setState(() {
-            if (!_hiddenLayers.remove(l)) _hiddenLayers.add(l);
+            _hiddenLayers = _hiddenLayers.contains(l)
+                ? ({..._hiddenLayers}..remove(l))
+                : {..._hiddenLayers, l};
           }),
           open: widget.open,
         );
@@ -333,7 +339,7 @@ class _EstateState extends State<_Estate> with TickerProviderStateMixin {
     super.didUpdateWidget(old);
     if (old.graph != widget.graph ||
         old.riskOnly != widget.riskOnly ||
-        old.hiddenLayers.length != widget.hiddenLayers.length) {
+        !setEquals(old.hiddenLayers, widget.hiddenLayers)) {
       _place();
     }
     if (old.focused != widget.focused) {
