@@ -22,6 +22,15 @@ void main() {
     await tester.pump();
   }
 
+  // A popup route ignores pointers until its open transition finishes, and that needs real frames
+  // rather than one long pump — a single pump(350ms) leaves the menu painted but untappable.
+  Future<void> openLayers(WidgetTester tester, [String label = 'LAYERS']) async {
+    await tester.tap(find.text(label));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+  }
+
   testWidgets('RISK narrows the map to nodes on a breaking edge', (tester) async {
     await pumpEstate(tester);
 
@@ -47,8 +56,7 @@ void main() {
   testWidgets('LAYERS opens a real menu offering every API-led layer', (tester) async {
     await pumpEstate(tester);
 
-    await tester.tap(find.text('LAYERS'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await openLayers(tester);
 
     // Exact matches: the column headers read "SYSTEM · 1", so these can only be menu entries.
     expect(find.text('CONSUMER APPS'), findsOneWidget);
@@ -57,6 +65,40 @@ void main() {
     expect(find.text('SYSTEM'), findsOneWidget);
     expect(find.text('SYSTEMS OF RECORD'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('The LAYERS menu opens on-screen and actually hides a layer', (tester) async {
+    await pumpEstate(tester);
+    expect(find.text('orders-sys-api'), findsOneWidget);
+
+    await openLayers(tester);
+
+    // The bar is docked near the bottom and the menu opens *over* it, so prove the menu landed
+    // inside the viewport instead of off the bottom edge where nobody could reach it. Flutter does
+    // not clamp popups vertically, so this is a real regression risk, not a formality.
+    final view = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final items = find.byType(PopupMenuItem<String>);
+    expect(items, findsNWidgets(5));
+    for (var i = 0; i < 5; i++) {
+      final r = tester.getRect(items.at(i));
+      expect(r.top, greaterThanOrEqualTo(0.0), reason: 'menu item $i above the viewport');
+      expect(r.bottom, lessThanOrEqualTo(view.height), reason: 'menu item $i below the viewport');
+      expect(r.right, lessThanOrEqualTo(view.width), reason: 'menu item $i past the right edge');
+    }
+
+    // Selecting it takes that layer off the map, and the count on the button reflects the choice.
+    await tester.tap(find.text('SYSTEM'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('orders-sys-api'), findsNothing);
+    expect(find.text('orders-exp-api'), findsOneWidget);
+    expect(find.text('LAYERS · 4'), findsOneWidget);
+
+    // And it is reversible — choosing again brings the layer back.
+    await openLayers(tester, 'LAYERS · 4');
+    await tester.tap(find.text('SYSTEM'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('orders-sys-api'), findsOneWidget);
+    expect(find.text('LAYERS'), findsOneWidget);
   });
 
   testWidgets('The command bar search opens the palette', (tester) async {

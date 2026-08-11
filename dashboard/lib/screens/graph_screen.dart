@@ -1595,11 +1595,19 @@ class _LayersMenu extends StatelessWidget {
   final ValueChanged<String> onToggle;
   const _LayersMenu({required this.hidden, required this.onToggle});
 
+  static const _itemHeight = 38.0;
+  // Flutter does not clamp a popup vertically — it will happily lay the menu off the bottom of the
+  // window. The command bar is docked near the bottom, so open upward, sized from the real item
+  // count rather than a magic number so adding a layer cannot push it off-screen again.
+  static double get _liftAboveBar =>
+      _Layout.layers.length * _itemHeight + 16 /* list padding */ + 10 /* gap */;
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       tooltip: 'Show or hide API-led layers',
       position: PopupMenuPosition.over,
+      offset: Offset(0, -_liftAboveBar),
       color: AppColors.card,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.field),
@@ -1610,7 +1618,7 @@ class _LayersMenu extends StatelessWidget {
         for (final layer in _Layout.layers)
           PopupMenuItem(
             value: layer,
-            height: 38,
+            height: _itemHeight,
             child: Row(children: [
               Icon(
                 hidden.contains(layer) ? Icons.check_box_outline_blank : Icons.check_box,
