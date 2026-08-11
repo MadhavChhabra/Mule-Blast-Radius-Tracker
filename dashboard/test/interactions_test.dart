@@ -81,6 +81,10 @@ void main() {
     expect(find.text('WHO YOU HAVE TO TELL'), findsOneWidget);
     // The consumer on the breaking edge is listed.
     expect(find.text('web-checkout-app'), findsWidgets);
+
+    // And what sits beyond them is named separately, so "1 consumer" is not read as the whole story.
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.textContaining('sit downwind of these'), findsOneWidget);
   });
 
   testWidgets('Check a change opens the hub on that mode, with both spec wells',

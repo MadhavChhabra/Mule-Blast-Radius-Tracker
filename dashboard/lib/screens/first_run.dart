@@ -414,6 +414,37 @@ class FirstRunWizardState extends State<FirstRunWizard> {
         const Text('BlipRadius reads your Anypoint contracts and scans every registered repo '
             'for its Mule flows, property files and DataWeave lineage. First sync on a real org '
             'is typically 1–2 minutes.'),
+        // Someone who already had a repo registered lands straight on this step, so name what is
+        // about to be read rather than asking them to take it on trust.
+        if (_repos.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text('WILL SCAN', style: monoLabel()),
+          const SizedBox(height: 7),
+          for (final r in _repos.take(4))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Row(children: [
+                const Icon(Icons.source_outlined, size: 14, color: AppColors.textMuted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(r,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: monoData(size: 11)),
+                ),
+              ]),
+            ),
+          if (_repos.length > 4)
+            Text('+${_repos.length - 4} more', style: monoData(size: 11)),
+        ],
+        if (_anypointConfigured) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            const Icon(Icons.cloud_done_outlined, size: 14, color: AppColors.additive),
+            const SizedBox(width: 8),
+            Text(_anypointOrgLabel ?? 'Anypoint connected', style: monoData(size: 11)),
+          ]),
+        ],
         const SizedBox(height: 14),
         if (!running && !done && !failed)
           FilledButton.icon(

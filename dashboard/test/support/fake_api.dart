@@ -57,6 +57,10 @@ http.Client fakeApiClient({Set<String> failPaths = const {}, bool emptyGraph = f
         body = _endpoint;
       } else if (p.startsWith('/api/changelog')) {
         body = '[]';
+      } else if (p.endsWith('/reach')) {
+        // orders-exp-api's direct consumer is the app; orders-proc-api sits a hop further out.
+        body = '{"api":"orders-exp-api","direct":["web-checkout-app"],'
+            '"transitive":["orders-proc-api"]}';
       } else if (p.startsWith('/api/apis/')) {
         body = '[]';
       } else if (p == '/api/catalog') {

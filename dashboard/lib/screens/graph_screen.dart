@@ -1365,14 +1365,35 @@ class FocusBar extends StatelessWidget {
 }
 
 /// The point of focus mode: the list of people this change obliges you to contact.
-class _WhoToTell extends StatelessWidget {
+class _WhoToTell extends StatefulWidget {
   final ApiClient api;
   final String apiId;
   final GraphDto graph;
   const _WhoToTell({required this.api, required this.apiId, required this.graph});
 
   @override
+  State<_WhoToTell> createState() => _WhoToTellState();
+}
+
+class _WhoToTellState extends State<_WhoToTell> {
+  Future<Reach>? _reach;
+
+  @override
+  void initState() {
+    super.initState();
+    _reach = widget.api.reach(widget.apiId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _WhoToTell old) {
+    super.didUpdateWidget(old);
+    if (old.apiId != widget.apiId) _reach = widget.api.reach(widget.apiId);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final apiId = widget.apiId;
+    final graph = widget.graph;
     final consumers = graph.edges.where((e) => e.to == apiId).toList();
     return GlassPanel(
       strong: true,
@@ -1418,18 +1439,56 @@ class _WhoToTell extends StatelessWidget {
               ),
             ]),
           ),
+        // Direct consumers are who you must tell; everything further out is who is downwind of
+        // them. Naming the second number stops "2 consumers" reading as the whole story.
+        FutureBuilder<Reach>(
+          future: _reach,
+          builder: (context, snap) {
+            final onward = snap.data?.transitive.length ?? 0;
+            if (onward == 0) return const SizedBox.shrink();
+            return Container(
+              margin: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.fillSubtle,
+                borderRadius: BorderRadius.circular(AppRadius.field),
+              ),
+              child: Row(children: [
+                const Icon(Icons.share_outlined, size: 15, color: AppColors.textMuted),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    '$onward more API${onward == 1 ? "" : "s"} sit downwind of these — affected '
+                    'only if their provider passes the change on.',
+                    style: const TextStyle(
+                        fontSize: 11.5, height: 1.45, color: AppColors.textMuted),
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () {
+            onPressed: () async {
               final b = StringBuffer('Heads-up: $apiId is changing\n');
               for (final e in consumers) {
                 b.writeln('  [ ] ${e.from} — ${e.fieldLevel ? "reads fields" : "confirm impact"}');
               }
-              Clipboard.setData(ClipboardData(text: b.toString()));
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Heads-up plan copied')));
+              final reach = await _reach;
+              if (reach != null && reach.transitive.isNotEmpty) {
+                b.writeln('\nDownwind (only if the change is passed on):');
+                for (final id in reach.transitive) {
+                  b.writeln('  - $id');
+                }
+              }
+              await Clipboard.setData(ClipboardData(text: b.toString()));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Heads-up plan copied')));
+              }
             },
             icon: const Icon(Icons.checklist_rtl, size: 16),
             label: const Text('Copy heads-up plan'),
