@@ -6,9 +6,11 @@ WORKDIR /src/dashboard
 COPY dashboard/pubspec.yaml dashboard/pubspec.lock ./
 RUN flutter pub get
 COPY dashboard/ ./
-# The HTML renderer keeps the app self-contained; CanvasKit would fetch its wasm from a CDN at
-# runtime, which fails on air-gapped or egress-filtered enterprise networks.
-RUN flutter build web --release --web-renderer html
+# CanvasKit with --no-web-resources-cdn: the wasm is served from our own /canvaskit/, so nothing is
+# fetched from gstatic at runtime and the app works on air-gapped or egress-filtered networks. The
+# HTML renderer would also be self-contained but cannot do BackdropFilter, which the glass panels
+# throughout the UI depend on — this keeps Docker rendering identical to the desktop build.
+RUN flutter build web --release --web-renderer canvaskit --no-web-resources-cdn
 
 FROM gradle:8.10-jdk17 AS build
 WORKDIR /src
@@ -17,14 +19,16 @@ COPY --from=ui /src/dashboard/build/web /src/dashboard/build/web
 RUN gradle :server:bootJar --no-daemon
 
 FROM eclipse-temurin:17-jre
-RUN groupadd --system --gid 10001 wakegraph \
-    && useradd --system --uid 10001 --gid wakegraph --home /app wakegraph \
+RUN groupadd --system --gid 10001 blipradius \
+    && useradd --system --uid 10001 --gid blipradius --home /app blipradius \
     && apt-get update \
     && apt-get install -y --no-install-recommends git curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=build --chown=wakegraph:wakegraph /src/server/build/libs/*.jar /app/server.jar
-USER wakegraph
+# Named exactly, not globbed: `libs/*.jar` would match the plain jar too the moment anything runs
+# `jar`, and Docker fails a multi-source COPY into a single file with a confusing message.
+COPY --from=build --chown=blipradius:blipradius /src/server/build/libs/blipradius-server.jar /app/server.jar
+USER blipradius
 EXPOSE 8080
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \

@@ -39,16 +39,59 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+/// A stable, product-named jar: end users type this path, Docker copies it by name, and jpackage
+/// embeds it — none of which should change when the version does.
+def serverJarName = 'blipradius-server.jar'
+
+bootJar {
+    archiveFileName = serverJarName
+}
+
+def flutterWebDir = file("${projectDir}/../dashboard/build/web")
+
 processResources {
-    def flutterWeb = file("${projectDir}/../dashboard/build/web")
-    if (flutterWeb.exists()) {
-        from(flutterWeb) { into 'static' }
+    if (flutterWebDir.exists()) {
+        from(flutterWebDir) { into 'static' }
     }
+}
+
+/// Packaging a build with no UI produces a server that 404s on `/` — the worst possible thing to hand
+/// an end user, and previously it happened silently. Anything meant for distribution checks first.
+def requireUiBundle = {
+    if (!file("${flutterWebDir}/index.html").exists()) {
+        throw new GradleException("No Flutter web bundle at ${flutterWebDir}.\n"
+                + "Distribution builds must ship the UI. Run:  cd dashboard && flutter build web --release")
+    }
+    // Also catch the stale case: the bundle exists now, but bootJar was built before it did.
+    def packaged = layout.buildDirectory.file('resources/main/static/index.html').get().asFile
+    if (!packaged.exists()) {
+        throw new GradleException("The UI was not packaged into the jar (${packaged} missing).\n"
+                + "Build the web bundle first, then rebuild:  ./gradlew :server:bootJar --rerun-tasks")
+    }
+}
+
+/// One definition of how the shipped UI is built. `--no-web-resources-cdn` is the load-bearing flag:
+/// without it the app fetches CanvasKit from gstatic at runtime and shows a blank page on an
+/// air-gapped network. Everything that distributes the app goes through this task.
+tasks.register('buildUi', Exec) {
+    group = 'distribution'
+    description = 'Build the Flutter web bundle with no CDN dependency.'
+    workingDir file("${projectDir}/../dashboard")
+    def isWin = System.getProperty('os.name').toLowerCase().contains('win')
+    def flutter = isWin ? ['cmd', '/c', 'flutter'] : ['flutter']
+    commandLine flutter + ['build', 'web', '--release',
+                           '--web-renderer', 'canvaskit', '--no-web-resources-cdn']
 }
 
 tasks.register('desktopStage', Copy) {
     dependsOn 'bootJar'
-    from(layout.buildDirectory.file("libs/server-${version}.jar"))
+    // Copy does not prune, so a jar left by an earlier build (a rename, a version bump) would be
+    // packaged into the app image alongside the real one.
+    doFirst {
+        requireUiBundle()
+        delete layout.buildDirectory.dir('desktop-stage')
+    }
+    from(layout.buildDirectory.file("libs/${serverJarName}"))
     into layout.buildDirectory.dir('desktop-stage')
 }
 
@@ -59,20 +102,22 @@ def jpackageExe = {
 
 def jpackageCommon = { java.util.List extra ->
     def stage = layout.buildDirectory.dir('desktop-stage').get().asFile
+    // The executable, Start-menu entry and installer all take this name — it is the most user-facing
+    // string in the build, so it is the product name, not the internal `apiguard` identifier.
     def cmd = [jpackageExe(),
-               '--name', 'APIGuard',
+               '--name', 'BlipRadius',
                '--app-version', "${version}".replaceAll('[^0-9.]', '') ?: '1.0.0',
                '--input', stage.absolutePath,
-               '--main-jar', "server-${version}.jar",
+               '--main-jar', serverJarName,
                '--java-options', '-Dspring.profiles.active=desktop',
-               '--vendor', 'APIGuard']
+               '--vendor', 'BlipRadius']
     cmd.addAll(extra)
     return cmd
 }
 
 tasks.register('desktopApp', Exec) {
     group = 'distribution'
-    description = 'Build a portable single-folder desktop app (APIGuard.exe) via jpackage.'
+    description = 'Build a portable single-folder desktop app (BlipRadius.exe) via jpackage.'
     dependsOn 'desktopStage'
     def dest = layout.buildDirectory.dir('desktop').get().asFile
     doFirst { delete dest }

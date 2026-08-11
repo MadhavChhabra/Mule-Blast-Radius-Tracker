@@ -1,5 +1,5 @@
 name: apiguard_dashboard
-description: "APIGuard dashboard — changes & risk, blast-radius graph, dependency explorer, changelog."
+description: "BlipRadius dashboard — the estate map, field-level blast radius, and change history."
 publish_to: 'none'
 version: 0.1.0
 

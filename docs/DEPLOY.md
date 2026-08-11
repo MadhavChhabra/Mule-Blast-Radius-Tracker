@@ -13,10 +13,17 @@ easiest-for-the-tester to most-scalable.
 The dashboard is always built the same way first (any UI change must be rebuilt):
 
 ```bash
-cd dashboard && flutter build web --release && cd ..
+./gradlew :server:buildUi           # Flutter web bundle, no CDN dependency
 ```
 
 That output is bundled into the server jar automatically, so one process serves both.
+
+**Air-gapped networks:** the build deliberately uses `--no-web-resources-cdn`, so CanvasKit, the
+IBM Plex fonts and the icon font are all served from the app's own origin — verified by loading the
+packaged app and confirming every request stays on `localhost`. One exception: CanvasKit asks
+`fonts.gstatic.com` for Roboto as its built-in fallback typeface. Nothing in the UI is styled with
+Roboto (the whole design is IBM Plex, bundled), so a network that blocks it loses nothing visible,
+but you will see that one request fail in the console.
 
 ---
 
@@ -29,7 +36,7 @@ saved Anypoint connection persist under `~/.apiguard` across restarts.
 **You build it once:**
 
 ```bash
-cd dashboard && flutter build web --release && cd ..
+./gradlew :server:buildUi           # Flutter web bundle, no CDN dependency
 ./gradlew :server:desktopApp        # portable app-image → server/build/desktop/
 # optional native installer (.msi needs the WiX Toolset):
 ./gradlew :server:desktopInstaller
@@ -75,9 +82,9 @@ The container runs as a non-root user, carries a `HEALTHCHECK` against `/api/hea
 ## C. Runnable jar (anyone with Java 17)
 
 ```bash
-cd dashboard && flutter build web --release && cd ..
-./gradlew :server:bootJar           # → server/build/libs/*.jar
-java -jar server/build/libs/apiguard-server.jar --spring.profiles.active=desktop
+./gradlew :server:buildUi           # Flutter web bundle, no CDN dependency
+./gradlew :server:bootJar           # → server/build/libs/blipradius-server.jar
+java -jar server/build/libs/blipradius-server.jar --spring.profiles.active=desktop
 # opens http://localhost:8080, data + key under ~/.apiguard
 ```
 

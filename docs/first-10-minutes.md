@@ -13,7 +13,7 @@ There is no external database to install — the desktop profile uses a persiste
 ## Minute 0 — build once
 
 ```bash
-cd dashboard && flutter build web --release
+./gradlew :server:buildUi
 cd .. && ./gradlew :cli:shadowJar :server:bootJar
 ```
 

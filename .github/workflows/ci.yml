@@ -60,4 +60,4 @@ jobs:
       - name: Test
         run: flutter test
       - name: Build web bundle
-        run: flutter build web --release --web-renderer html
+        run: flutter build web --release --web-renderer canvaskit --no-web-resources-cdn
