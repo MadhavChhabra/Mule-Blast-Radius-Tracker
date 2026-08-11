@@ -82,8 +82,11 @@ public class SourcesService {
     private static final SyncListener NO_LISTENER = new SyncListener() {
     };
 
+    /// `unchangedRepos` counts repos skipped because their head had not moved. It is reported as a
+    /// number of its own, not only inside `note`, so callers can tell a skipped sync from an empty one.
     public record SyncAllResult(boolean anypointRan, AnypointSyncService.SyncResult anypoint,
-                                List<RepoResult> repos, int totalApps, String note) {
+                                List<RepoResult> repos, int totalApps, int unchangedRepos,
+                                String note) {
     }
 
     public record RepoSource(String url, String lastSyncedAt, Integer lastApps, String lastError) {
@@ -271,7 +274,8 @@ public class SourcesService {
                         + "undeclaredApps={} configDriftApps={}",
                 anypointRan, repoResults.size(), totalApps, duplicates,
                 undeclaredByApp.size(), driftByApp.size());
-        return new SyncAllResult(anypointRan, anypoint, repoResults, totalApps, note);
+        return new SyncAllResult(anypointRan, anypoint, repoResults, totalApps,
+                unchangedRepos.size(), note);
     }
 
     /// Folds each run's results back onto the registered source so the Sources list can say what a
