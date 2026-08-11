@@ -55,14 +55,18 @@ class ApiGuardApp extends StatelessWidget {
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  /// Only ever passed by tests — the shell owns the client in the app. Without this the focus bar
+  /// and tab switching could not be exercised at all, since they live here rather than on a screen.
+  final ApiClient? api;
+
+  const HomeShell({super.key, this.api});
 
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  final api = ApiClient();
+  late final ApiClient api = widget.api ?? ApiClient();
   int _index = 0;
   NavTarget? _target;
   bool _searchOpen = false;
