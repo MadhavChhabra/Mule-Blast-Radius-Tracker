@@ -18,7 +18,9 @@ class _ShortcutsHelpDialog extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
+        // A fixed Column overflowed the moment a group grew — on a short window it would have
+        // overflowed with the original list too.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -52,8 +54,12 @@ class _ShortcutsHelpDialog extends StatelessWidget {
                 _Row(['Enter'], 'Open the focused result'),
               ]),
               _group(context, 'In the estate map', const [
-                _Row(['+'], 'Zoom in (use the toolbar)'),
-                _Row(['-'], 'Zoom out (use the toolbar)'),
+                _Row(['Drag'], 'Pan the map — any direction, including diagonally'),
+                _Row(['Scroll'], 'Zoom in and out around the pointer'),
+                _Row(['Click'], 'Focus an API and trace its blast radius'),
+                _Row(['Double-click'], 'Open that API in the hub'),
+                _Row(['Esc'], 'Leave focus mode'),
+                _Row(['Fit'], 'Bring the whole estate back into view'),
               ]),
               const SizedBox(height: 8),
               Text('Every icon in the app also carries a tooltip — hover to see it.',

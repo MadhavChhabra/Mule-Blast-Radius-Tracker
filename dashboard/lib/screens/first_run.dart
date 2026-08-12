@@ -70,7 +70,11 @@ class FirstRunWizardState extends State<FirstRunWizard> {
         _step = _anypointConfigured || _repos.isNotEmpty ? 1 : 0;
         if (_repos.isNotEmpty) _step = 2;
       });
-    } catch (_) {}
+    } catch (e) {
+      // Silence here presented a pristine step-one wizard to a user whose server was simply
+      // unreachable, inviting them to re-enter a configuration that was never lost.
+      if (mounted) setState(() => _error = _clean(e));
+    }
   }
 
   static String? _formatOrg(String? org, String? env) {

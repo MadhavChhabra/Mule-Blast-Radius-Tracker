@@ -196,6 +196,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
         Expanded(
           child: AsyncView<SourcesStatus>(
             future: _status!,
+            // Without this the screen could not recover from a transient failure without a reload.
+            onRetry: _reload,
             builder: (context, s) => LayoutBuilder(builder: (context, c) {
               final main = ListView(
                 padding: const EdgeInsets.fromLTRB(40, 0, 40, 32),

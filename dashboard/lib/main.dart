@@ -360,87 +360,222 @@ class _TopBar extends StatelessWidget {
     required this.api,
   });
 
+  /// One icon per destination, for when there is no room for words. The nav is the last thing that
+  /// may be dropped — every other element in the bar goes first.
+  static const _navIcons = [
+    Icons.hub_outlined,
+    Icons.api_outlined,
+    Icons.history_edu_outlined,
+    Icons.folder_copy_outlined,
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final content = Row(children: [
-      const BrandMark(size: 22),
-      const SizedBox(width: 9),
-      const Text('BlipRadius',
-          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: -0.2)),
-      const SizedBox(width: 16),
-      Container(width: 1, height: 20, color: AppColors.hairlineStrong),
-      const SizedBox(width: 16),
-      for (int i = 0; i < labels.length; i++) ...[
-        _NavPill(label: labels[i], selected: i == index, onTap: () => onSelect(i)),
-        const SizedBox(width: 6),
-      ],
-      const Spacer(),
-      _SyncStatus(api: api),
-      const SizedBox(width: 14),
-      _BarIcon(icon: Icons.search, tooltip: 'Search  Ctrl/Cmd-K', onTap: onSearch),
-      _BarIcon(
-        icon: Icons.vpn_key_outlined,
-        tooltip: 'Server access (API key)',
-        onTap: onKey,
-        active: ApiClient.apiKey != null,
-      ),
-      _BarIcon(
-          icon: Icons.keyboard_alt_outlined,
-          tooltip: 'Keyboard shortcuts  Ctrl/Cmd-/',
-          onTap: () => showShortcutsHelp(context)),
-      const SizedBox(width: 10),
-      FilledButton.icon(
-        onPressed: onCheckChange,
-        icon: const Icon(Icons.bolt, size: 16),
-        label: const Text('Check a change'),
-      ),
-    ]);
+    // The bar was a single unwrapped Row, so it overflowed by 213px at 1024x768 — a browser on half
+    // a 1080p screen — and by 847px on a phone. It now sheds its least load-bearing parts in order:
+    // the wordmark, then the connection label, then the icon cluster (into an overflow menu), then
+    // the CTA's label, then the nav labels.
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final showWordmark = w >= 1180;
+      final showStatus = w >= 1020;
+      final showIconCluster = w >= 880;
+      final showCtaLabel = w >= 1080;
+      final labelledNav = w >= 700;
 
-    if (!floating) {
-      return Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 22),
-        decoration: const BoxDecoration(
-          color: AppColors.bar,
-          border: Border(bottom: BorderSide(color: AppColors.hairline)),
+      final content = Row(children: [
+        const BrandMark(size: 22),
+        if (showWordmark) ...[
+          const SizedBox(width: 9),
+          const Text('BlipRadius',
+              style:
+                  TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: -0.2)),
+        ],
+        const SizedBox(width: 14),
+        Container(width: 1, height: 20, color: AppColors.hairlineStrong),
+        const SizedBox(width: 14),
+        // Below the narrowest breakpoint the nav scrolls rather than overflows: a clipped bar is
+        // recoverable, a RenderFlex overflow is a broken screen.
+        Flexible(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (int i = 0; i < labels.length; i++) ...[
+                _NavPill(
+                  label: labels[i],
+                  icon: _navIcons[i],
+                  showLabel: labelledNav,
+                  selected: i == index,
+                  onTap: () => onSelect(i),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ]),
+          ),
         ),
-        child: content,
+        const SizedBox(width: 8),
+        if (showStatus) ...[
+          _SyncStatus(api: api),
+          const SizedBox(width: 14),
+        ],
+        if (showIconCluster) ...[
+          _BarIcon(icon: Icons.search, tooltip: 'Search  Ctrl/Cmd-K', onTap: onSearch),
+          _BarIcon(
+            icon: Icons.vpn_key_outlined,
+            tooltip: 'Server access (API key)',
+            onTap: onKey,
+            active: ApiClient.apiKey != null,
+          ),
+          _BarIcon(
+              icon: Icons.keyboard_alt_outlined,
+              tooltip: 'Keyboard shortcuts  Ctrl/Cmd-/',
+              onTap: () => showShortcutsHelp(context)),
+        ] else
+          _BarOverflowMenu(
+            onSearch: onSearch,
+            onKey: onKey,
+            onShortcuts: () => showShortcutsHelp(context),
+            keyed: ApiClient.apiKey != null,
+          ),
+        const SizedBox(width: 8),
+        if (showCtaLabel)
+          FilledButton.icon(
+            onPressed: onCheckChange,
+            icon: const Icon(Icons.bolt, size: 16),
+            label: const Text('Check a change'),
+          )
+        else
+          Tooltip(
+            message: 'Check a change',
+            child: FilledButton(
+              onPressed: onCheckChange,
+              style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 34)),
+              child: const Icon(Icons.bolt, size: 16),
+            ),
+          ),
+      ]);
+
+      if (!floating) {
+        return Container(
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 22),
+          decoration: const BoxDecoration(
+            color: AppColors.bar,
+            border: Border(bottom: BorderSide(color: AppColors.hairline)),
+          ),
+          child: content,
+        );
+      }
+      return GlassPanel(
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        radius: AppRadius.panel,
+        child: SizedBox(height: 52 - 2, child: content),
       );
-    }
-    return GlassPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      radius: AppRadius.panel,
-      child: SizedBox(height: 52 - 2, child: content),
+    });
+  }
+}
+
+/// The bar's icon cluster, folded into one button when the window is too narrow to show it.
+class _BarOverflowMenu extends StatelessWidget {
+  final VoidCallback onSearch;
+  final VoidCallback onKey;
+  final VoidCallback onShortcuts;
+  final bool keyed;
+  const _BarOverflowMenu({
+    required this.onSearch,
+    required this.onKey,
+    required this.onShortcuts,
+    required this.keyed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
+      tooltip: 'More',
+      color: AppColors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.field),
+        side: const BorderSide(color: AppColors.hairlineStrong),
+      ),
+      onSelected: (v) => switch (v) {
+        0 => onSearch(),
+        1 => onKey(),
+        _ => onShortcuts(),
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+            value: 0,
+            child: Row(children: [
+              Icon(Icons.search, size: 16),
+              SizedBox(width: 10),
+              Text('Search  Ctrl/Cmd-K'),
+            ])),
+        PopupMenuItem(
+            value: 1,
+            child: Row(children: [
+              Icon(Icons.vpn_key_outlined,
+                  size: 16, color: keyed ? AppColors.accentSoft : null),
+              const SizedBox(width: 10),
+              const Text('Server access'),
+            ])),
+        const PopupMenuItem(
+            value: 2,
+            child: Row(children: [
+              Icon(Icons.keyboard_alt_outlined, size: 16),
+              SizedBox(width: 10),
+              Text('Keyboard shortcuts'),
+            ])),
+      ],
+      child: const Padding(
+        padding: EdgeInsets.all(7),
+        child: Icon(Icons.more_vert, size: 18, color: AppColors.textMuted),
+      ),
     );
   }
 }
 
 class _NavPill extends StatelessWidget {
   final String label;
+  final IconData icon;
+  final bool showLabel;
   final bool selected;
   final VoidCallback onTap;
-  const _NavPill({required this.label, required this.selected, required this.onTap});
+  const _NavPill({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.showLabel = true,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final colour = selected ? AppColors.text : AppColors.textMuted;
+    final pill = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: AnimatedContainer(
         duration: AppMotion.fast,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: showLabel ? 12 : 9, vertical: 6),
         decoration: BoxDecoration(
           color: selected ? const Color(0x12FFFFFF) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-              color: selected ? AppColors.text : AppColors.textMuted,
-            )),
+        child: showLabel
+            ? Text(label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                  color: colour,
+                ))
+            : Icon(icon, size: 17, color: colour),
       ),
     );
+    // The label is the whole affordance; when it is gone the name has to survive as a tooltip and
+    // as the semantic label, or the nav becomes four unexplained glyphs.
+    return showLabel ? pill : Tooltip(message: label, child: Semantics(label: label, child: pill));
   }
 }
 

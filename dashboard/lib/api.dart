@@ -161,13 +161,11 @@ class ApiClient {
     return LatestSpec(j['versionLabel'], j['savedAt'], spec);
   }
 
-  Future<SourcesStatus> sourcesStatus() async {
-    try {
-      return SourcesStatus.fromJson(await _get('/api/sources'));
-    } catch (_) {
-      return SourcesStatus(false, null, null, null, const [], const []);
-    }
-  }
+  /// Throws on failure, deliberately. Swallowing the error here returned a status that said
+  /// "Anypoint not connected, no repos" — so a server that was merely unreachable was rendered as
+  /// the user's configuration having been lost. Callers show a real error and a retry instead.
+  Future<SourcesStatus> sourcesStatus() async =>
+      SourcesStatus.fromJson(await _get('/api/sources'));
 
   Future<SourcesStatus> sourcesConfigureAnypoint({
     required String clientId,
