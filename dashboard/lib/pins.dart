@@ -42,8 +42,11 @@ class EstateDelta {
 
   /// Compares the current node set against the remembered one without updating it, so the delta
   /// survives a page refresh until the user explicitly acknowledges it.
-  static EstateDelta since(Iterable<String> currentApis) {
-    final seen = web_util.loadStoredSetting(_key);
+  static EstateDelta since(Iterable<String> currentApis) =>
+      compare(web_util.loadStoredSetting(_key), currentApis);
+
+  /// The comparison itself, free of browser storage so it can be exercised directly.
+  static EstateDelta compare(String? seen, Iterable<String> currentApis) {
     if (seen == null) {
       return const EstateDelta([], []);
     }
@@ -60,6 +63,13 @@ class EstateDelta {
 
   static void remember(Iterable<String> currentApis) {
     web_util.storeSetting(_key, currentApis.join(','));
+  }
+
+  /// Records the estate the first time it is ever seen. Without this nothing ever wrote the
+  /// baseline, so [since] always compared against nothing and the "since you last looked" card
+  /// could not appear at all — the whole feature was unreachable.
+  static void rememberFirstLook(Iterable<String> currentApis) {
+    if (web_util.loadStoredSetting(_key) == null) remember(currentApis);
   }
 }
 

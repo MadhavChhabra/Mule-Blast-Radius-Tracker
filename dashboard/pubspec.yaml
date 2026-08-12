@@ -13,6 +13,9 @@ dependencies:
   graphview: 1.2.0   # pinned: 1.5.x requires Flutter 3.27+ (uses Color.withValues)
   fl_chart: ^0.68.0
   flutter_markdown: ^0.7.3
+  # Already on the classpath through Flutter itself; declared because the estate map names Quad
+  # and Vector3 directly when it converts the map viewport into canvas coordinates.
+  vector_math: ^2.1.4
 
 dev_dependencies:
   flutter_test:
