@@ -97,12 +97,13 @@ void main() {
     expect(find.text('Sync'), findsWidgets);
   });
 
-  testWidgets('API hub with no APIs prompts to choose one', (tester) async {
+  testWidgets('API hub with no APIs says how to get some, not "pick one"', (tester) async {
     await pumpScreen(tester, ApiHubScreen(api: fakeApi(emptyGraph: true), open: noopOpen));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Pick an API to inspect'), findsOneWidget);
-    expect(find.text('Choose an API'), findsOneWidget);
+    // Offering a chooser over an empty estate is a dead end; the next step is a sync.
+    expect(find.text('No APIs yet'), findsOneWidget);
+    expect(find.textContaining('Connect Anypoint or register a repo'), findsOneWidget);
   });
 
   testWidgets('API hub relationships surface an error with retry, not a false empty state',

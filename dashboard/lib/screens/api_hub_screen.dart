@@ -31,17 +31,48 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
   String? _api;
   Future<GraphDto>? _graph;
 
+  /// Bumped when the estate is replaced, and mixed into the tab keys so every panel below reloads.
+  /// The hub is kept alive across navigation, so without this a sync left it showing the consumer
+  /// counts, lineage and relationships from before the sync — silently, with no way to tell.
+  int _revision = 0;
+
+  void _onEstateChanged() {
+    if (!mounted) return;
+    setState(() {
+      _graph = widget.api.graph();
+      _revision++;
+    });
+  }
+
+  @override
+  void dispose() {
+    ApiClient.estateRevision.removeListener(_onEstateChanged);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    ApiClient.estateRevision.addListener(_onEstateChanged);
     _graph = widget.api.graph();
     _api = widget.initialApi;
     if (_api == null) {
       // Unhandled: with no server reachable this threw into the zone on every load. The screen
       // already renders a proper error state from the same future, so swallow it here.
       _graph!.then((g) {
+        if (!mounted || _api != null) return;
         final apis = g.nodes.where((n) => n.api).map((n) => n.id).toList()..sort();
-        if (mounted && _api == null && apis.isNotEmpty) setState(() => _api = apis.first);
+        // Opening on whichever API sorts first says nothing to anybody. On a a real estate it is an
+        // API the developer has never heard of, on a screen that never explains why it is there.
+        // Auto-open only when the choice is genuinely obvious; otherwise ask.
+        final pinned = Pins.instance.pinned.where(apis.contains).toList();
+        if (pinned.isNotEmpty) {
+          setState(() => _api = pinned.first);
+        } else if (apis.length == 1) {
+          setState(() => _api = apis.single);
+        } else {
+          setState(() {});
+        }
       }).catchError((_) {});
     }
   }
@@ -54,15 +85,10 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
   @override
   Widget build(BuildContext context) {
     if (_api == null) {
-      return EmptyState(
-        icon: Icons.search,
-        title: 'Pick an API to inspect',
-        message: 'Use the search palette (Ctrl/Cmd-K) or click any node on the estate map.',
-        action: FilledButton.icon(
-          onPressed: _pickApi,
-          icon: const Icon(Icons.search, size: 16),
-          label: const Text('Choose an API'),
-        ),
+      return _ApiChooser(
+        graph: _graph!,
+        onPick: (id) => setState(() => _api = id),
+        onSearch: _pickApi,
       );
     }
     // The lineage strip gives orientation in 212px, so the answer column never competes with a
@@ -101,8 +127,12 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
                 _ChangeImpactTab(
                     api: widget.api, apiId: _api!, checkChange: widget.checkChange),
                 _RelationshipsTab(
-                    api: widget.api, apiId: _api!, graph: _graph!, open: widget.open),
-                _HistoryTab(api: widget.api, apiId: _api!),
+                    key: ValueKey('rel:$_api:$_revision'),
+                    api: widget.api,
+                    apiId: _api!,
+                    graph: _graph!,
+                    open: widget.open),
+                _HistoryTab(key: ValueKey('hist:$_api:$_revision'), api: widget.api, apiId: _api!),
               ]),
             ),
           ]),
@@ -179,6 +209,122 @@ class _ApiHubScreenState extends State<ApiHubScreen> {
           ),
         ]);
       }),
+    );
+  }
+}
+
+/// What the hub shows before an API is chosen. The screen answers one question — "everything about
+/// one API" — so the way in has to be the shortlist a developer would actually pick from, not a
+/// bare search box and certainly not whichever API happens to sort first.
+class _ApiChooser extends StatelessWidget {
+  final Future<GraphDto> graph;
+  final ValueChanged<String> onPick;
+  final VoidCallback onSearch;
+  const _ApiChooser({required this.graph, required this.onPick, required this.onSearch});
+
+  @override
+  Widget build(BuildContext context) {
+    return AsyncView<GraphDto>(
+      future: graph,
+      builder: (context, g) {
+        final apis = g.nodes.where((n) => n.api).toList();
+        if (apis.isEmpty) {
+          return const EmptyState(
+            icon: Icons.travel_explore_outlined,
+            title: 'No APIs yet',
+            message: 'Connect Anypoint or register a repo on Sources, then run one sync. '
+                'Everything on this screen is read from your own estate.',
+          );
+        }
+
+        final breaking = <String>{
+          for (final e in g.edges)
+            if (e.risk == 'breaking') e.to,
+        }.where((id) => apis.any((n) => n.id == id)).toList();
+        final pinned = Pins.instance.pinned.where((p) => apis.any((n) => n.id == p)).toList();
+        final popular = [...apis]..sort((a, b) {
+            final byFanIn = b.dependedOnBy.compareTo(a.dependedOnBy);
+            return byFanIn != 0 ? byFanIn : a.id.compareTo(b.id);
+          });
+
+        return ListView(
+          // ScreenHeader carries the surface's own 40px gutter, so the list must not add a second.
+          padding: const EdgeInsets.only(bottom: 40),
+          children: [
+            const ScreenHeader('API hub',
+                'Everything about one API: what a change to it breaks, who calls it, and what it '
+                'has changed before. Pick the API you are about to touch.'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(40, 0, 40, 22),
+              child: Row(children: [
+                FilledButton.icon(
+                  onPressed: onSearch,
+                  icon: const Icon(Icons.search, size: 16),
+                  label: Text('Search all ${apis.length} APIs'),
+                ),
+                const SizedBox(width: 12),
+                Text('or Ctrl/Cmd-K from anywhere', style: monoData(size: 11)),
+              ]),
+            ),
+            if (pinned.isNotEmpty)
+              _group(context, 'YOUR PINNED APIS', Icons.push_pin,
+                  [for (final id in pinned.take(6)) (id, 'pinned')]),
+            if (breaking.isNotEmpty)
+              _group(context, 'A BREAKING CHANGE IS IN FLIGHT', Icons.warning_amber_rounded, [
+                for (final id in breaking.take(6)) (id, 'consumers are already at risk'),
+              ], tone: AppColors.breaking),
+            _group(context, 'MOST DEPENDED ON', Icons.hub_outlined, [
+              for (final n in popular.take(8))
+                (
+                  n.id,
+                  n.dependedOnBy == 0
+                      ? 'nothing depends on it yet'
+                      : '${n.dependedOnBy} consumer${n.dependedOnBy == 1 ? "" : "s"}'
+                ),
+            ]),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _group(BuildContext context, String title, IconData icon,
+      List<(String, String)> rows, {Color? tone}) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(40, 0, 40, 20),
+      child: SolidPanel(
+        padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Row(children: [
+              Icon(icon, size: 15, color: tone ?? AppColors.textMuted),
+              const SizedBox(width: 9),
+              Text(title, style: monoLabel(color: tone)),
+            ]),
+          ),
+          for (final (id, note) in rows)
+            InkWell(
+              onTap: () => onPick(id),
+              borderRadius: BorderRadius.circular(AppRadius.field),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(id,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  ),
+                  Text(note, style: monoData(size: 11)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, size: 16, color: AppColors.textGhost),
+                ]),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 }
@@ -266,7 +412,7 @@ class _RelationshipsTab extends StatelessWidget {
   final Future<GraphDto> graph;
   final OpenFn? open;
   const _RelationshipsTab(
-      {required this.api, required this.apiId, required this.graph, this.open});
+      {super.key, required this.api, required this.apiId, required this.graph, this.open});
 
   @override
   Widget build(BuildContext context) {
@@ -534,7 +680,11 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
       _busy = true;
       _result = widget.api.propagate(api: widget.apiId, spec: _spec.text);
     });
-    _result!.whenComplete(() => setState(() => _busy = false));
+    // The hub is keyed on the API name, so opening another API disposes this tab. Without the
+    // guard a request still in flight then calls setState on a defunct State and throws.
+    _result!.whenComplete(() {
+      if (mounted) setState(() => _busy = false);
+    });
   }
 
   Future<void> _loadFileInto(TextEditingController c) async {
@@ -579,7 +729,9 @@ class _ChangeImpactTabState extends State<_ChangeImpactTab> {
       _busy = true;
       _analysis = widget.api.analyze(api: widget.apiId, oldSpec: _oldSpec.text, newSpec: _newSpec.text);
     });
-    _analysis!.whenComplete(() => setState(() => _busy = false));
+    _analysis!.whenComplete(() {
+      if (mounted) setState(() => _busy = false);
+    });
   }
 
   @override
@@ -1243,7 +1395,7 @@ class _GovernanceCard extends StatelessWidget {
 class _HistoryTab extends StatefulWidget {
   final ApiClient api;
   final String apiId;
-  const _HistoryTab({required this.api, required this.apiId});
+  const _HistoryTab({super.key, required this.api, required this.apiId});
 
   @override
   State<_HistoryTab> createState() => _HistoryTabState();
