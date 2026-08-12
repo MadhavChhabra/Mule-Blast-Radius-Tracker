@@ -38,6 +38,34 @@ public class SearchController {
 
     public record SearchResults(List<ApiHit> apis, List<EndpointHit> endpoints, List<FieldHit> fields) {}
 
+    static List<ApiHit> rankedApiHits(Set<String> apiNames, String needle) {
+        List<String> matches = new ArrayList<>();
+        for (String name : apiNames) {
+            if (needle.isEmpty() || name.toLowerCase(Locale.ROOT).contains(needle)) {
+                matches.add(name);
+            }
+        }
+        matches.sort((a, b) -> {
+            int byRank = Integer.compare(rank(a, needle), rank(b, needle));
+            return byRank != 0 ? byRank : a.compareToIgnoreCase(b);
+        });
+        List<ApiHit> hits = new ArrayList<>();
+        for (String name : matches.subList(0, Math.min(LIMIT_PER_KIND, matches.size()))) {
+            hits.add(new ApiHit(name));
+        }
+        return hits;
+    }
+
+    private static int rank(String name, String needle) {
+        if (needle.isEmpty()) return 0;
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.equals(needle)) return 0;
+        if (lower.startsWith(needle)) return 1;
+        int at = lower.indexOf('-' + needle);
+        if (at >= 0) return 2;
+        return 3;
+    }
+
     @GetMapping
     @Transactional(readOnly = true)
     public SearchResults search(@RequestParam(defaultValue = "") String q) {
@@ -53,13 +81,7 @@ public class SearchController {
             }
         }
 
-        List<ApiHit> apiHits = new ArrayList<>();
-        for (String name : apiNames) {
-            if (needle.isEmpty() || name.toLowerCase(Locale.ROOT).contains(needle)) {
-                apiHits.add(new ApiHit(name));
-                if (apiHits.size() >= LIMIT_PER_KIND) break;
-            }
-        }
+        List<ApiHit> apiHits = rankedApiHits(apiNames, needle);
 
         Map<String, EndpointHit> endpointDedup = new LinkedHashMap<>();
         Map<String, FieldHit> fieldDedup = new LinkedHashMap<>();
@@ -85,7 +107,7 @@ public class SearchController {
             }
         }
 
-        return new SearchResults(apiHits,
+        return new SearchResults(new ArrayList<>(apiHits),
                 new ArrayList<>(endpointDedup.values()).subList(0,
                         Math.min(LIMIT_PER_KIND, endpointDedup.size())),
                 new ArrayList<>(fieldDedup.values()).subList(0,

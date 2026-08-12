@@ -35,6 +35,15 @@ class ApiKeySecurityTest {
     }
 
     @Test
+    void theRejectionMessageIsReadable() {
+        ResponseEntity<String> r = rest.getForEntity(url("/api/graph"), String.class);
+        // The writer defaults to ISO-8859-1 unless the charset is declared, which turned the dash
+        // in this message into a "?" in front of the user.
+        assertTrue(r.getBody().contains("API key required — send X-API-Key"),
+                "mangled error body: " + r.getBody());
+    }
+
+    @Test
     void apiKeyHeaderIsAccepted() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", "test-secret-key");

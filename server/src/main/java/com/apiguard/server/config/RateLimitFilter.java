@@ -66,7 +66,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         int used = window.count().incrementAndGet();
         if (used > limitPerMinute) {
             response.setStatus(429);
-            response.setContentType("application/json");
+            // Without the charset the writer falls back to ISO-8859-1 and the dash reaches the user
+            // as a literal "?".
+            response.setContentType("application/json;charset=UTF-8");
             response.setHeader("Retry-After", "60");
             response.getWriter().write(
                     "{\"error\":\"Too many requests — try again in a minute.\"}");

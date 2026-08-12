@@ -62,7 +62,9 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType("application/json");
+        // Without the charset the writer falls back to ISO-8859-1 and the dash reaches the user as
+        // a literal "?".
+        response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"error\":\"API key required — send X-API-Key or Authorization: Bearer.\"}");
     }
 }
